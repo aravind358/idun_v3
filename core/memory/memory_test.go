@@ -231,7 +231,7 @@ func TestCreateRecord_DuplicateID(t *testing.T) {
 func TestCreateRecord_SetsCreatedAt(t *testing.T) {
 	m := newTestMemory(t)
 	rec := makeRecord("event/x", "event", []byte("e"))
-	//rec.CreatedAt = rec.CreatedAt // explicitly zero
+	rec.CreatedAt = rec.CreatedAt // explicitly zero
 	if err := m.CreateRecord(rec); err != nil {
 		t.Fatalf("CreateRecord: %v", err)
 	}
