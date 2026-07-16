@@ -45,6 +45,35 @@ func (m *mockWorkspace) ListTopicEnvelopes(topic communication.TopicID, limit in
 	return nil
 }
 
+func (m *mockWorkspace) StorePendingCandidate(ctx context.Context, topic communication.TopicID, candidate workspace.PendingCandidate) error {
+	return nil
+}
+func (m *mockWorkspace) GetPendingCandidates(topic communication.TopicID) []workspace.PendingCandidate {
+	return nil
+}
+func (m *mockWorkspace) RemovePendingCandidate(topic communication.TopicID, envelopeID string) bool {
+	return false
+}
+
+func (m *mockWorkspace) RegisterEpisodeDependencies(ctx context.Context, epID string, dependsOn []string) error {
+	return nil
+}
+func (m *mockWorkspace) IsEpisodeReady(ctx context.Context, epID string) (bool, error) {
+	return true, nil
+}
+func (m *mockWorkspace) ResolveDependencies(ctx context.Context, epID string) error {
+	return nil
+}
+func (m *mockWorkspace) NotifyDependencyComplete(ctx context.Context, depID string) error {
+	return nil
+}
+func (m *mockWorkspace) RegisterEpisodeChild(ctx context.Context, parentID string, childID string) error {
+	return nil
+}
+func (m *mockWorkspace) GetEpisodeChildren(ctx context.Context, parentID string) ([]string, error) {
+	return nil, nil
+}
+
 func (m *mockWorkspace) Name() string { return "MockWorkspace" }
 func (m *mockWorkspace) Start() error { return nil }
 func (m *mockWorkspace) Close() error { return nil }

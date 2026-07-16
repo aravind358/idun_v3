@@ -97,4 +97,14 @@ type ExecutiveV2 interface {
 
 	// ConsumeBudget deducts computational cost units from the current cycle budget.
 	ConsumeBudget(units int) error
+
+	// Policy returns the currently active, immutable ExecutivePolicyProfile snapshot.
+	Policy() *ExecutivePolicyProfile
+
+	// Capabilities returns the immutable ExecutiveCapabilities snapshot for this deployment.
+	Capabilities() *ExecutiveCapabilities
+
+	// UpdatePolicy atomically replaces the active policy profile with a newly validated snapshot from Learning.
+	UpdatePolicy(profile *ExecutivePolicyProfile) error
 }
+

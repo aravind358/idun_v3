@@ -11,6 +11,7 @@ package workspace
 import (
 	"context"
 	"errors"
+	"time"
 
 	"idun/intelligence/communication"
 )
@@ -64,6 +65,13 @@ func WithGlobalBroadcast(global bool) PublishOption {
 	}
 }
 
+// PendingCandidate represents a candidate bid envelope stored in the Workspace pending competition and arbitration.
+type PendingCandidate struct {
+	Envelope    communication.Envelope
+	Horizon     int
+	SubmittedAt time.Time
+}
+
 // Workspace defines the capability contract for the Global Workspace & Leveled Blackboard Engine.
 type Workspace interface {
 	// Publish validates and posts an Envelope to its leveled topic channel (or globally if escalated).
@@ -84,6 +92,33 @@ type Workspace interface {
 	// ListTopicEnvelopes retrieves up to limit recent envelopes buffered on a specific topic channel.
 	ListTopicEnvelopes(topic communication.TopicID, limit int) []communication.Envelope
 
+	// StorePendingCandidate stores a candidate bid envelope pending competition/arbitration on a topic.
+	StorePendingCandidate(ctx context.Context, topic communication.TopicID, candidate PendingCandidate) error
+
+	// GetPendingCandidates retrieves all currently pending candidate bids on a specific topic channel.
+	GetPendingCandidates(topic communication.TopicID) []PendingCandidate
+
+	// RemovePendingCandidate removes a specific candidate bid by Envelope ID from pending state after arbitration.
+	RemovePendingCandidate(topic communication.TopicID, envelopeID string) bool
+
+	// RegisterEpisodeDependencies registers the list of dependency IDs required by an episode.
+	RegisterEpisodeDependencies(ctx context.Context, epID string, dependsOn []string) error
+
+	// IsEpisodeReady checks if an episode has all of its dependencies resolved.
+	IsEpisodeReady(ctx context.Context, epID string) (bool, error)
+
+	// ResolveDependencies triggers check and verification of dependencies for a given episode ID.
+	ResolveDependencies(ctx context.Context, epID string) error
+
+	// NotifyDependencyComplete marks a specific dependency (episode ID or envelope ID) as completed.
+	NotifyDependencyComplete(ctx context.Context, depID string) error
+
+	// RegisterEpisodeChild registers a parent-child structural relationship in the Workspace hierarchy graph.
+	RegisterEpisodeChild(ctx context.Context, parentID string, childID string) error
+
+	// GetEpisodeChildren returns all immediate child episode IDs registered under a parent episode.
+	GetEpisodeChildren(ctx context.Context, parentID string) ([]string, error)
+
 	// Name returns the canonical Kernel component name ("Intelligence.Workspace").
 	Name() string
 
@@ -93,3 +128,4 @@ type Workspace interface {
 	// Close gracefully shuts down the Workspace and cancels all active subscriptions.
 	Close() error
 }
+

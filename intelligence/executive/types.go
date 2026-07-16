@@ -13,6 +13,8 @@ package executive
 import (
 	"errors"
 	"time"
+
+	"idun/intelligence/attention"
 )
 
 // ============================================================================
@@ -128,37 +130,23 @@ func (b BudgetTier) String() string {
 }
 
 // PriorityBand defines the 5-band hierarchy for task prioritization and preemption.
-type PriorityBand int
+type PriorityBand = attention.PriorityBand
 
 const (
-	// PriorityBand0CriticalSafety is non-preemptible and immediately preempts any lower band.
-	PriorityBand0CriticalSafety PriorityBand = 0
-
-	// PriorityBand1RealTime is for time-critical synchronous user interactions.
-	PriorityBand1RealTime PriorityBand = 1
-
-	// PriorityBand2Interactive is for standard interactive dialogue workflows.
-	PriorityBand2Interactive PriorityBand = 2
-
-	// PriorityBand3Background is for scheduled background maintenance and reminders.
-	PriorityBand3Background PriorityBand = 3
-
-	// PriorityBand4Idle is for exploratory reflection and memory consolidation during zero salience.
-	PriorityBand4Idle PriorityBand = 4
+	PriorityBand0CriticalSafety = attention.PriorityBand0CriticalSafety
+	PriorityBand1RealTime       = attention.PriorityBand1RealTime
+	PriorityBand2Interactive    = attention.PriorityBand2Interactive
+	PriorityBand3Background     = attention.PriorityBand3Background
+	PriorityBand4Idle           = attention.PriorityBand4Idle
 )
 
 // SalienceDecision represents the outcome of attentional gating evaluation.
-type SalienceDecision string
+type SalienceDecision = attention.SalienceDecision
 
 const (
-	// SalienceFocusImmediately routes the stimulus into Priority Bands 0..2 for immediate dispatch.
-	SalienceFocusImmediately SalienceDecision = "FOCUS_IMMEDIATELY"
-
-	// SalienceSchedule routes the stimulus into Priority Band 3 for deferred scheduling.
-	SalienceSchedule SalienceDecision = "SCHEDULE"
-
-	// SalienceFilter drops low-salience sensory flutter without spending cognitive effort.
-	SalienceFilter SalienceDecision = "FILTER"
+	SalienceFocusImmediately = attention.SalienceFocusImmediately
+	SalienceSchedule         = attention.SalienceSchedule
+	SalienceFilter           = attention.SalienceFilter
 )
 
 // ============================================================================
@@ -193,21 +181,10 @@ var (
 // ============================================================================
 
 // ActiveGoalContext holds a lightweight reference header to the currently active long-term goal.
-// Goal management belongs to Planning and Memory; Executive holds this header solely for salience evaluation.
-type ActiveGoalContext struct {
-	ID             string
-	Summary        string
-	PriorityWeight int
-}
+type ActiveGoalContext = attention.ActiveGoalContext
 
 // Stimulus represents an incoming perceptual event, user prompt, or internal system alert.
-type Stimulus struct {
-	ID            string
-	Source        string
-	PayloadRef    string // Immutable storage reference URI (e.g. SHA-256 hash in Core.Storage)
-	SafetyFlag    bool   // True if triggered by hardware fault or constitutional safety tripwire
-	SalienceScore int    // 0..100 salience score
-}
+type Stimulus = attention.Stimulus
 
 // WorkflowNode represents a single abstract transition step in a cognitive workflow graph.
 type WorkflowNode struct {

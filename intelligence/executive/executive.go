@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"idun/core/logger"
+	"idun/intelligence/attention"
 )
 
 // ============================================================================
@@ -29,6 +30,9 @@ type Config struct {
 
 	// DefaultMaxReflection defines the default maximum recursive reflection depth.
 	DefaultMaxReflection int
+
+	// AttentionGate is the injected attention triage engine. Optional (defaults to attention.Service).
+	AttentionGate AttentionGate
 }
 
 // ============================================================================
@@ -43,8 +47,8 @@ type ExecutiveService struct {
 	closed        bool
 	idleThreshold time.Duration
 
-	// Attentional & Goal state
-	activeGoal ActiveGoalContext
+	// Attentional & Goal state delegation
+	attentionGate AttentionGate
 
 	// Priority queues (5 bands: 0..4)
 	queues [5][]*WorkflowGraph
@@ -78,6 +82,11 @@ func NewExecutiveService(cfg Config) *ExecutiveService {
 		defaultReflect = 2
 	}
 
+	attentionGate := cfg.AttentionGate
+	if attentionGate == nil {
+		attentionGate = attention.NewService(attention.WithLogger(cfg.Logger))
+	}
+
 	return &ExecutiveService{
 		log:                  cfg.Logger,
 		idleThreshold:        idleThreshold,
@@ -86,6 +95,7 @@ func NewExecutiveService(cfg Config) *ExecutiveService {
 		lastActivity:         time.Now(),
 		defaultMaxFuel:       defaultFuel,
 		defaultMaxReflection: defaultReflect,
+		attentionGate:        attentionGate,
 	}
 }
 
@@ -138,49 +148,23 @@ func (e *ExecutiveService) Close() error {
 }
 
 // ============================================================================
-// AttentionGate Capability Implementation
+// AttentionGate Capability Implementation (Delegated to Attention subsystem)
 // ============================================================================
 
 // Evaluate inspects a Stimulus against current ActiveGoalContext and assigns triage salience.
 func (e *ExecutiveService) Evaluate(s Stimulus) (SalienceDecision, PriorityBand) {
 	e.RecordActivity()
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
-	// Hardware safety or constitutional tripwires immediately route to Band 0 Focus
-	if s.SafetyFlag {
-		return SalienceFocusImmediately, PriorityBand0CriticalSafety
-	}
-
-	score := s.SalienceScore
-	if score >= 85 {
-		return SalienceFocusImmediately, PriorityBand1RealTime
-	} else if score >= 50 {
-		return SalienceFocusImmediately, PriorityBand2Interactive
-	} else if score >= 20 {
-		return SalienceSchedule, PriorityBand3Background
-	}
-	return SalienceFilter, PriorityBand4Idle
+	return e.attentionGate.Evaluate(s)
 }
 
 // SetActiveGoal updates the lightweight active goal header reference.
 func (e *ExecutiveService) SetActiveGoal(goal ActiveGoalContext) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.activeGoal = goal
-	if e.log != nil {
-		e.log.Info("Active goal updated",
-			logger.Field{Key: "goal_id", Value: goal.ID},
-			logger.Field{Key: "summary", Value: goal.Summary},
-		)
-	}
+	e.attentionGate.SetActiveGoal(goal)
 }
 
 // GetActiveGoal returns the current active goal header reference.
 func (e *ExecutiveService) GetActiveGoal() ActiveGoalContext {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	return e.activeGoal
+	return e.attentionGate.GetActiveGoal()
 }
 
 // ============================================================================

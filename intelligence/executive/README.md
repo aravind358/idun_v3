@@ -21,3 +21,45 @@ The `executive` package coordinates the seven immutable cognitive abilities.
 ## 2. Strict Content Blindness & Separation of Responsibilities
 Executive Functions Version 2.0 inspects **only** control-plane Envelope metadata (`Source`, `Topic`, `RawConfidence`, `Urgency`, `CostEstimateUnits`, `PayloadRef`).
 Executive **never** dereferences `PayloadRef`, **never** parses language, and **never** performs domain reasoning or planning.
+
+---
+
+## 3. Phase 3 Episode Orchestration (`2.0.0-FROZEN`)
+Executive Phase 3 introduces **Episode-Based Orchestration**, dividing historical identity from runtime execution state:
+- **`ExecutiveEpisodeDefinition` (Immutable):** Stores `EpisodeID`, `EpisodeType`, `EpisodeIntent`, `EpisodeOrigin`, `HierarchyReference` (`Workspace` owned), `DependencyReference` (`Workspace` owned), `EpisodeFingerprint` (`SHA-256`), and `ReplayMetadata`.
+- **`ExecutiveEpisodeRuntime` (Mutable):** Tracks FSM Factual transitions (`EpisodeStatus` vs. `EpisodeOutcome`), `ExecutorID` (migration location), and bounded rolling histories (`PriorityHistory`, `BudgetHistory` bounded to max 16 items).
+- **`Hybrid EpisodeContext`:** Strongly typed core (`WorkspaceReference`, `AttentionReference`, `GoalReference`) plus an extensible `ModuleReferences map[string]string` registry (`planning://...`, `vision://...`, `robotics://...`, `skills://...`).
+- **`EpisodeOrchestrator`:** Event-driven engine reacting to asynchronous signals (`EventDependencyResolved`, `EventPlanningCompleted`, `EventDecisionCompleted`, `EventAttentionChanged`, `EventEpisodeCancelled`) and coordinating cognitive waking (`Reflection`, `Learning`, `Strategy Activation`) without evaluating or generating domain content.
+- **`EpisodeCheckpoint` (Minimal Layer 1 Snapshot):** Immutable recovery snapshot containing `CheckpointID`, `EpisodeID`, `RuntimeFingerprint`, `WorkspaceReference`, `AttentionReference`, `Timestamp`, and `ReplayMetadata`.
+
+---
+
+## 4. Future Executive Enhancements (Post Layer 1)
+The following features are documented as future design ideas for expansion **beyond** Layer 1 (`2.0.0-FROZEN`) and are **not currently implemented**:
+
+### `EpisodeCheckpoint v2`
+Possible future additions to recovery snapshots:
+- `CheckpointVersion`
+- `CheckpointFingerprint`
+- `CreatedByExecutor`
+- `CheckpointReason`
+
+### `EpisodeCapabilities Extensions`
+Possible future additions to capability advertising:
+- `SupportsNestedEpisodes`
+- `SupportsDistributedExecution`
+
+### `EpisodeMetrics`
+Potential future telemetry tracking:
+- `CPUTime`
+- `WallTime`
+- `MemoryUsed`
+- `PauseCount`
+- `ResumeCount`
+- `MigrationCount`
+- `CheckpointCount`
+
+### `EpisodeSubsystemUsage Enhancements`
+Possible future additions to subsystem monitoring:
+- Invocation counters across all cognitive turns
+- Aggregate execution statistics and latency percentiles across distributed worker nodes

@@ -88,6 +88,33 @@ func (m *mockDeliberativeWorkspace) GetEnvelope(id string) (communication.Envelo
 func (m *mockDeliberativeWorkspace) ListTopicEnvelopes(topic communication.TopicID, limit int) []communication.Envelope {
 	return nil
 }
+func (m *mockDeliberativeWorkspace) StorePendingCandidate(ctx context.Context, topic communication.TopicID, candidate workspace.PendingCandidate) error {
+	return nil
+}
+func (m *mockDeliberativeWorkspace) GetPendingCandidates(topic communication.TopicID) []workspace.PendingCandidate {
+	return nil
+}
+func (m *mockDeliberativeWorkspace) RemovePendingCandidate(topic communication.TopicID, envelopeID string) bool {
+	return false
+}
+func (m *mockDeliberativeWorkspace) RegisterEpisodeDependencies(ctx context.Context, epID string, dependsOn []string) error {
+	return nil
+}
+func (m *mockDeliberativeWorkspace) IsEpisodeReady(ctx context.Context, epID string) (bool, error) {
+	return true, nil
+}
+func (m *mockDeliberativeWorkspace) ResolveDependencies(ctx context.Context, epID string) error {
+	return nil
+}
+func (m *mockDeliberativeWorkspace) NotifyDependencyComplete(ctx context.Context, depID string) error {
+	return nil
+}
+func (m *mockDeliberativeWorkspace) RegisterEpisodeChild(ctx context.Context, parentID string, childID string) error {
+	return nil
+}
+func (m *mockDeliberativeWorkspace) GetEpisodeChildren(ctx context.Context, parentID string) ([]string, error) {
+	return nil, nil
+}
 func (m *mockDeliberativeWorkspace) Name() string { return "MockDeliberativeWorkspace" }
 func (m *mockDeliberativeWorkspace) Start() error { return nil }
 func (m *mockDeliberativeWorkspace) Close() error { return nil }

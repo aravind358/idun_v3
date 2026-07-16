@@ -1,0 +1,518 @@
+package runtime
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"sync"
+	"time"
+
+	"idun/core/logger"
+	"idun/core/memory"
+	"idun/core/scheduler"
+	"idun/core/storage"
+	"idun/intelligence/attention"
+	"idun/intelligence/calibration"
+	"idun/intelligence/communication"
+	"idun/intelligence/constitution"
+	"idun/intelligence/decision"
+	"idun/intelligence/executive"
+	"idun/intelligence/learning"
+	"idun/intelligence/planning"
+	"idun/intelligence/reasoning"
+	"idun/intelligence/reflection"
+	"idun/intelligence/understanding"
+	"idun/intelligence/workspace"
+	"idun/kernel"
+)
+
+// ErrInvalidTransition indicates an illegal lifecycle operation given current runtime status.
+var ErrInvalidTransition = errors.New("runtime: invalid status transition")
+
+type runtimeDispatcher struct {
+	log logger.Writer
+}
+
+func (d *runtimeDispatcher) Dispatch(target string, payload []byte) error {
+	if d.log != nil {
+		d.log.Info("runtime: scheduler dispatching target",
+			logger.Field{Key: "target", Value: target},
+			logger.Field{Key: "payload_bytes", Value: fmt.Sprintf("%d", len(payload))},
+		)
+	}
+	return nil
+}
+
+type workspacePubAdapter struct {
+	ws *workspace.Engine
+}
+
+func (a *workspacePubAdapter) Publish(ctx context.Context, env communication.Envelope) error {
+	return a.ws.Publish(ctx, env)
+}
+
+type payloadStorerAdapter struct {
+	store *storage.Storage
+}
+
+func (a *payloadStorerAdapter) Store(ctx context.Context, data []byte) (string, error) {
+	h := sha256.Sum256(data)
+	key := hex.EncodeToString(h[:])
+	if err := a.store.Write(key, data); err != nil {
+		return "", err
+	}
+	return key, nil
+}
+
+// RuntimeHost is the master orchestrator responsible for constructing, wiring,
+// registering, booting, and stopping all Layer 1 cognitive and foundational subsystems.
+type RuntimeHost struct {
+	mu            sync.RWMutex
+	cfg           RuntimeConfiguration
+	status        RuntimeStatus
+	kernel        *kernel.Kernel
+	manifest      *RuntimeManifest
+	report        *RuntimeBootReport
+	subs          []workspace.Subscription
+	wrappers      map[string]*ComponentWrapper
+	built         bool
+	wired         bool
+	registered    bool
+
+	// Core instances
+	loggerSvc    logger.Writer
+	storageSvc   *storage.Storage
+	memorySvc    memory.Memory
+	schedulerSvc *scheduler.SchedulerService
+
+	// Foundation instances
+	registrySvc   *kernel.Registry
+	busSvc        *kernel.Bus
+	boundarySvc   *kernel.BoundaryEngine
+	permissionSvc *kernel.PermissionEngine
+	constGate     *constitution.Gate
+	calibSvc      *calibration.Service
+
+	// Workspace & Cognitive instances
+	workspaceSvc *workspace.Engine
+	attentionSvc *attention.Service
+	executiveSvc *executive.ServiceV2
+	underSvc     *understanding.Service
+	reasonSvc    *reasoning.Service
+	planSvc      *planning.DefaultPlanningService
+	decisionSvc  *decision.DefaultDecisionService
+	reflectSvc   *reflection.Service
+	learningSvc  *learning.Service
+}
+
+// NewHost initializes a new RuntimeHost in STOPPED state.
+func NewHost(cfg RuntimeConfiguration) (*RuntimeHost, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("runtime host config validation failed: %w", err)
+	}
+	return &RuntimeHost{
+		cfg:      cfg,
+		status:   StatusStopped,
+		wrappers: make(map[string]*ComponentWrapper),
+	}, nil
+}
+
+// Configure updates runtime configuration if the host is stopped.
+func (h *RuntimeHost) Configure(cfg RuntimeConfiguration) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.status != StatusStopped {
+		return fmt.Errorf("%w: cannot configure in state %s", ErrInvalidTransition, h.status)
+	}
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	h.cfg = cfg
+	h.built = false
+	h.wired = false
+	h.registered = false
+	return nil
+}
+
+// Status returns the current operational state of the runtime.
+func (h *RuntimeHost) Status() RuntimeStatus {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.status
+}
+
+// Manifest returns the immutable runtime provenance manifest, or nil if not yet booted.
+func (h *RuntimeHost) Manifest() *RuntimeManifest {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.manifest
+}
+
+// Report returns the diagnostic startup report, or nil if not yet booted.
+func (h *RuntimeHost) Report() *RuntimeBootReport {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.report
+}
+
+// Kernel returns the active Kernel instance, or nil if not running.
+func (h *RuntimeHost) Kernel() *kernel.Kernel {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.kernel
+}
+
+// Workspace returns the active Global Workspace instance, or nil if not built.
+func (h *RuntimeHost) Workspace() workspace.Workspace {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.workspaceSvc == nil {
+		return nil
+	}
+	return h.workspaceSvc
+}
+
+// Build constructs every subsystem using existing constructors and dependency injection.
+func (h *RuntimeHost) Build() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.status != StatusStopped && h.status != StatusStarting {
+		return fmt.Errorf("%w: cannot build in state %s", ErrInvalidTransition, h.status)
+	}
+	if h.built {
+		return nil
+	}
+
+	var logWriter io.Writer = os.Stdout
+	if !h.cfg.EnableLogging {
+		logWriter = io.Discard
+	}
+	logSvc, err := logger.NewLogger(logger.Config{Output: logWriter})
+	if err != nil {
+		return fmt.Errorf("failed to construct logger service: %w", err)
+	}
+	h.loggerSvc = logSvc
+
+	storeSvc, err := storage.NewStorage(storage.Config{Path: h.cfg.StoragePath}, logSvc)
+	if err != nil {
+		return fmt.Errorf("failed to construct storage service: %w", err)
+	}
+	h.storageSvc = storeSvc
+
+	memSvc, err := memory.NewMemoryService(memory.Config{}, storeSvc, logSvc)
+	if err != nil {
+		return fmt.Errorf("failed to construct memory service: %w", err)
+	}
+	h.memorySvc = memSvc
+
+	disp := &runtimeDispatcher{log: logSvc}
+	schedSvc, err := scheduler.NewSchedulerService(scheduler.Config{}, memSvc, logSvc, disp)
+	if err != nil {
+		return fmt.Errorf("failed to construct scheduler service: %w", err)
+	}
+	h.schedulerSvc = schedSvc
+
+	h.registrySvc = kernel.NewRegistry()
+	h.boundarySvc = kernel.NewBoundaryEngine()
+	h.permissionSvc = kernel.NewPermissionEngine()
+
+	busSvc, err := kernel.NewBus(h.registrySvc, h.boundarySvc, h.permissionSvc)
+	if err != nil {
+		return fmt.Errorf("failed to construct bus service: %w", err)
+	}
+	h.busSvc = busSvc
+
+	h.constGate = constitution.NewGate()
+	_ = h.constGate.RegisterRule(constitution.NewMaxUrgencyEscalationRule(99))
+	h.calibSvc = calibration.NewService()
+
+	h.workspaceSvc = workspace.NewEngine()
+	h.attentionSvc = attention.NewService(
+		attention.WithLogger(logSvc),
+		attention.WithWorkspacePublisher(&workspacePubAdapter{ws: h.workspaceSvc}, &payloadStorerAdapter{store: storeSvc}),
+	)
+
+	execSvc, err := executive.NewServiceV2(h.workspaceSvc, h.calibSvc, h.constGate, h.cfg.InitialExecutiveBudget)
+	if err != nil {
+		return fmt.Errorf("failed to construct executive service: %w", err)
+	}
+	h.executiveSvc = execSvc
+
+	if h.isSubsystemEnabled("understanding") {
+		h.underSvc = understanding.NewService(understanding.WithConfigOptions(), h.workspaceSvc)
+	}
+	if h.isSubsystemEnabled("reasoning") {
+		h.reasonSvc = reasoning.NewService(reasoning.DefaultConfig(), h.workspaceSvc, memSvc)
+	}
+	if h.isSubsystemEnabled("planning") {
+		h.planSvc = planning.NewService()
+	}
+	if h.isSubsystemEnabled("decision") {
+		h.decisionSvc = decision.NewService()
+	}
+	if h.isSubsystemEnabled("reflection") {
+		h.reflectSvc = reflection.NewService()
+	}
+	if h.isSubsystemEnabled("learning") {
+		ls, err := learning.NewService()
+		if err != nil {
+			return fmt.Errorf("failed to construct learning service: %w", err)
+		}
+		h.learningSvc = ls
+	}
+
+	h.built = true
+	return nil
+}
+
+func (h *RuntimeHost) isSubsystemEnabled(name string) bool {
+	if h.cfg.EnabledSubsystems == nil {
+		return true
+	}
+	enabled, ok := h.cfg.EnabledSubsystems[name]
+	if !ok {
+		return true
+	}
+	return enabled
+}
+
+// Wire connects subscriptions across Global Workspace channels.
+func (h *RuntimeHost) Wire() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.status != StatusStopped && h.status != StatusStarting {
+		return fmt.Errorf("%w: cannot wire in state %s", ErrInvalidTransition, h.status)
+	}
+	if !h.built {
+		return errors.New("runtime: cannot wire before build")
+	}
+	if h.wired {
+		return nil
+	}
+
+	h.subs = nil
+
+	// Register default baseline monitoring subscriptions on Workspace if Executive is available
+	if h.workspaceSvc != nil && h.executiveSvc != nil {
+		sub, err := h.workspaceSvc.Subscribe(communication.TopicPerception, "runtime-perception-bridge", func(ctx context.Context, env communication.Envelope) error {
+			return nil
+		})
+		if err == nil && sub != nil {
+			h.subs = append(h.subs, sub)
+		}
+	}
+
+	h.wired = true
+	return nil
+}
+
+// Register wraps constructed instances into phased ComponentWrappers and registers them with Kernel Registry.
+func (h *RuntimeHost) Register() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.status != StatusStopped && h.status != StatusStarting {
+		return fmt.Errorf("%w: cannot register in state %s", ErrInvalidTransition, h.status)
+	}
+	if !h.built || !h.wired {
+		return errors.New("runtime: cannot register before build and wire")
+	}
+	if h.registered {
+		return nil
+	}
+
+	h.wrappers = make(map[string]*ComponentWrapper)
+
+	registerWrap := func(name string, phase kernel.Phase, inst interface{}) {
+		if inst == nil {
+			return
+		}
+		w := NewWrapper(name, phase, inst, nil, nil)
+		h.wrappers[name] = w
+		_ = h.registrySvc.Register(w)
+	}
+
+	// Phase 1: Core
+	registerWrap("Core.Storage", kernel.PhaseCore, h.storageSvc)
+	registerWrap("Core.Memory", kernel.PhaseCore, h.memorySvc)
+	registerWrap("Core.Scheduler", kernel.PhaseCore, h.schedulerSvc)
+
+	// Phase 2: Foundation
+	registerWrap("Foundation.Registry", kernel.PhaseInfrastructure, h.registrySvc)
+	registerWrap("Foundation.Bus", kernel.PhaseInfrastructure, h.busSvc)
+	registerWrap("Foundation.Boundary", kernel.PhaseInfrastructure, h.boundarySvc)
+	registerWrap("Foundation.Permission", kernel.PhaseInfrastructure, h.permissionSvc)
+	registerWrap("Foundation.Constitution", kernel.PhaseInfrastructure, h.constGate)
+	registerWrap("Foundation.Calibration", kernel.PhaseInfrastructure, h.calibSvc)
+
+	// Phase 3: Workspace
+	registerWrap("Intelligence.Workspace", kernel.PhaseWorkspace, h.workspaceSvc)
+
+	// Phase 4: Executive & Attention
+	registerWrap("Intelligence.Attention", kernel.PhaseExecutive, h.attentionSvc)
+	registerWrap("Intelligence.Executive", kernel.PhaseExecutive, h.executiveSvc)
+
+	// Phase 5: Cognitive
+	if h.underSvc != nil {
+		registerWrap("Intelligence.Understanding", kernel.PhaseCognitive, h.underSvc)
+	}
+	if h.reasonSvc != nil {
+		registerWrap("Intelligence.Reasoning", kernel.PhaseCognitive, h.reasonSvc)
+	}
+	if h.planSvc != nil {
+		registerWrap("Intelligence.Planning", kernel.PhaseCognitive, h.planSvc)
+	}
+	if h.decisionSvc != nil {
+		registerWrap("Intelligence.Decision", kernel.PhaseCognitive, h.decisionSvc)
+	}
+
+	// Phase 6: Background
+	if h.reflectSvc != nil {
+		registerWrap("Intelligence.Reflection", kernel.PhaseBackground, h.reflectSvc)
+	}
+	if h.learningSvc != nil {
+		registerWrap("Intelligence.Learning", kernel.PhaseBackground, h.learningSvc)
+	}
+
+	h.registered = true
+	return nil
+}
+
+// Start executes Build, Wire, and Register if needed, boots the Kernel across Phase 1-6,
+// and produces the immutable RuntimeManifest and RuntimeBootReport.
+func (h *RuntimeHost) Start(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	h.mu.Lock()
+	if h.status != StatusStopped {
+		status := h.status
+		h.mu.Unlock()
+		return fmt.Errorf("%w: cannot start in state %s", ErrInvalidTransition, status)
+	}
+	h.status = StatusStarting
+	h.mu.Unlock()
+
+	startTime := time.Now()
+
+	if err := h.Build(); err != nil {
+		return h.failBoot(startTime, fmt.Errorf("build stage failed: %w", err))
+	}
+	if err := h.Wire(); err != nil {
+		return h.failBoot(startTime, fmt.Errorf("wire stage failed: %w", err))
+	}
+	if err := h.Register(); err != nil {
+		return h.failBoot(startTime, fmt.Errorf("register stage failed: %w", err))
+	}
+
+	h.mu.Lock()
+	cfg := kernel.Config{
+		Registry:   h.registrySvc,
+		Bus:        h.busSvc,
+		Boundary:   h.boundarySvc,
+		Permission: h.permissionSvc,
+	}
+	h.mu.Unlock()
+
+	k, err := kernel.Boot(cfg)
+	if err != nil {
+		return h.failBoot(startTime, fmt.Errorf("kernel boot failed: %w", err))
+	}
+
+	h.mu.Lock()
+	h.kernel = k
+	h.status = StatusRunning
+
+	subsysVersions := make(map[string]string)
+	policyHashes := make(map[string]string)
+	capHashes := make(map[string]string)
+	startedNames := make([]string, 0, len(h.wrappers))
+
+	for name := range h.wrappers {
+		startedNames = append(startedNames, name)
+		subsysVersions[name] = "2.0.0-FROZEN"
+		policyHashes[name] = "policy-v2-default"
+		capHashes[name] = "caps-v2-default"
+	}
+
+	var skipped []string
+	for _, optional := range []string{"understanding", "reasoning", "planning", "decision", "reflection", "learning"} {
+		if !h.isSubsystemEnabled(optional) {
+			skipped = append(skipped, "Intelligence."+optional)
+		}
+	}
+
+	h.manifest = GenerateManifest(h.cfg.RuntimeVersion, subsysVersions, policyHashes, capHashes)
+	h.report = &RuntimeBootReport{
+		BootDuration:      time.Since(startTime),
+		StartedComponents: startedNames,
+		SkippedComponents: skipped,
+		Manifest:          h.manifest,
+		Warnings:          []string{},
+		Success:           true,
+	}
+	h.mu.Unlock()
+
+	if h.loggerSvc != nil {
+		h.loggerSvc.Info("runtime: boot sequence completed successfully",
+			logger.Field{Key: "duration_ms", Value: fmt.Sprintf("%d", h.report.BootDuration.Milliseconds())},
+			logger.Field{Key: "manifest_hash", Value: h.manifest.ManifestFingerprint},
+		)
+	}
+
+	return nil
+}
+
+func (h *RuntimeHost) failBoot(start time.Time, err error) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.status = StatusFailed
+	h.report = &RuntimeBootReport{
+		BootDuration:      time.Since(start),
+		StartedComponents: []string{},
+		SkippedComponents: []string{},
+		Warnings:          []string{err.Error()},
+		Success:           false,
+	}
+	if h.loggerSvc != nil {
+		h.loggerSvc.Error("runtime: boot sequence failed",
+			logger.Field{Key: "error", Value: err.Error()},
+		)
+	}
+	return err
+}
+
+// Stop initiates reverse-topological shutdown and transitions to STOPPED.
+func (h *RuntimeHost) Stop() error {
+	h.mu.Lock()
+	if h.status != StatusRunning {
+		h.mu.Unlock()
+		return nil
+	}
+	h.status = StatusStopping
+	subs := h.subs
+	k := h.kernel
+	h.mu.Unlock()
+
+	for _, sub := range subs {
+		_ = sub.Cancel()
+	}
+
+	if k != nil {
+		k.Shutdown()
+	}
+
+	h.mu.Lock()
+	h.status = StatusStopped
+	h.kernel = nil
+	h.mu.Unlock()
+
+	if h.loggerSvc != nil {
+		h.loggerSvc.Info("runtime: host stopped cleanly")
+	}
+	return nil
+}

@@ -13,13 +13,17 @@ const defaultBufferLimit = 500
 
 // Engine is the concrete, thread-safe implementation of the Global Workspace & Leveled Blackboard.
 type Engine struct {
-	mu           sync.RWMutex
-	closed       bool
-	bufferLimit  int
-	subs         map[SubscriptionID]*subscription
-	topicSubs    map[communication.TopicID]map[SubscriptionID]*subscription
-	envelopes    map[string]communication.Envelope
-	topicBuffers map[communication.TopicID][]communication.Envelope
+	mu             sync.RWMutex
+	closed         bool
+	bufferLimit    int
+	subs           map[SubscriptionID]*subscription
+	topicSubs      map[communication.TopicID]map[SubscriptionID]*subscription
+	envelopes      map[string]communication.Envelope
+	topicBuffers   map[communication.TopicID][]communication.Envelope
+	pending        map[communication.TopicID][]PendingCandidate
+	depGraph       map[string][]string
+	resolvedDeps   map[string]bool
+	hierarchyGraph map[string][]string
 }
 
 // Option configures functional options for Engine construction.
@@ -37,15 +41,20 @@ func WithBufferLimit(limit int) Option {
 // NewEngine constructs a new Global Workspace & Leveled Blackboard engine.
 func NewEngine(opts ...Option) *Engine {
 	e := &Engine{
-		bufferLimit:  defaultBufferLimit,
-		subs:         make(map[SubscriptionID]*subscription),
-		topicSubs:    make(map[communication.TopicID]map[SubscriptionID]*subscription),
-		envelopes:    make(map[string]communication.Envelope),
-		topicBuffers: make(map[communication.TopicID][]communication.Envelope),
+		bufferLimit:    defaultBufferLimit,
+		subs:           make(map[SubscriptionID]*subscription),
+		topicSubs:      make(map[communication.TopicID]map[SubscriptionID]*subscription),
+		envelopes:      make(map[string]communication.Envelope),
+		topicBuffers:   make(map[communication.TopicID][]communication.Envelope),
+		pending:        make(map[communication.TopicID][]PendingCandidate),
+		depGraph:       make(map[string][]string),
+		resolvedDeps:   make(map[string]bool),
+		hierarchyGraph: make(map[string][]string),
 	}
 	for _, topic := range communication.AllTopics() {
 		e.topicSubs[topic] = make(map[SubscriptionID]*subscription)
 		e.topicBuffers[topic] = make([]communication.Envelope, 0, 64)
+		e.pending[topic] = make([]PendingCandidate, 0, 16)
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -84,6 +93,7 @@ func (e *Engine) Close() error {
 	for topic := range e.topicSubs {
 		e.topicSubs[topic] = make(map[SubscriptionID]*subscription)
 	}
+	e.pending = make(map[communication.TopicID][]PendingCandidate)
 	return nil
 }
 
@@ -249,6 +259,64 @@ func (e *Engine) ListTopicEnvelopes(topic communication.TopicID, limit int) []co
 	return out
 }
 
+// StorePendingCandidate stores a candidate bid envelope pending competition/arbitration on a topic.
+func (e *Engine) StorePendingCandidate(ctx context.Context, topic communication.TopicID, candidate PendingCandidate) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !topic.IsValid() {
+		return ErrInvalidTopic
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closed {
+		return ErrWorkspaceClosed
+	}
+
+	list := e.pending[topic]
+	list = append(list, candidate)
+	e.pending[topic] = list
+	return nil
+}
+
+// GetPendingCandidates retrieves all currently pending candidate bids on a specific topic channel.
+func (e *Engine) GetPendingCandidates(topic communication.TopicID) []PendingCandidate {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	list, ok := e.pending[topic]
+	if !ok || len(list) == 0 {
+		return nil
+	}
+	out := make([]PendingCandidate, len(list))
+	copy(out, list)
+	return out
+}
+
+// RemovePendingCandidate removes a specific candidate bid by Envelope ID from pending state after arbitration.
+func (e *Engine) RemovePendingCandidate(topic communication.TopicID, envelopeID string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	list, ok := e.pending[topic]
+	if !ok || len(list) == 0 {
+		return false
+	}
+
+	for i, item := range list {
+		if item.Envelope.ID == envelopeID {
+			e.pending[topic] = append(list[:i], list[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+
 // subscription represents a concrete subscription handle.
 type subscription struct {
 	mu         sync.Mutex
@@ -293,6 +361,87 @@ func generateHexID(n int) string {
 	buf := make([]byte, n)
 	_, _ = rand.Read(buf)
 	return hex.EncodeToString(buf)
+}
+
+func (e *Engine) RegisterEpisodeDependencies(ctx context.Context, epID string, dependsOn []string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closed {
+		return ErrWorkspaceClosed
+	}
+	e.depGraph[epID] = append(e.depGraph[epID], dependsOn...)
+	return nil
+}
+
+func (e *Engine) IsEpisodeReady(ctx context.Context, epID string) (bool, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	if e.closed {
+		return false, ErrWorkspaceClosed
+	}
+	deps, exists := e.depGraph[epID]
+	if !exists || len(deps) == 0 {
+		return true, nil
+	}
+	for _, dep := range deps {
+		if !e.resolvedDeps[dep] {
+			// Also check if dep is an envelope currently present in envelopes
+			if _, ok := e.envelopes[dep]; !ok {
+				return false, nil
+			}
+		}
+	}
+	return true, nil
+}
+
+func (e *Engine) ResolveDependencies(ctx context.Context, epID string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closed {
+		return ErrWorkspaceClosed
+	}
+	deps, exists := e.depGraph[epID]
+	if !exists {
+		return nil
+	}
+	for _, dep := range deps {
+		if _, ok := e.envelopes[dep]; ok {
+			e.resolvedDeps[dep] = true
+		}
+	}
+	return nil
+}
+
+func (e *Engine) NotifyDependencyComplete(ctx context.Context, depID string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closed {
+		return ErrWorkspaceClosed
+	}
+	e.resolvedDeps[depID] = true
+	return nil
+}
+
+func (e *Engine) RegisterEpisodeChild(ctx context.Context, parentID string, childID string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closed {
+		return ErrWorkspaceClosed
+	}
+	e.hierarchyGraph[parentID] = append(e.hierarchyGraph[parentID], childID)
+	return nil
+}
+
+func (e *Engine) GetEpisodeChildren(ctx context.Context, parentID string) ([]string, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	if e.closed {
+		return nil, ErrWorkspaceClosed
+	}
+	children := e.hierarchyGraph[parentID]
+	out := make([]string, len(children))
+	copy(out, children)
+	return out, nil
 }
 
 // Ensure Engine implements Workspace.

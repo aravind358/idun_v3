@@ -16,8 +16,11 @@
 package kernel
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"log"
+	"sort"
 )
 
 // ============================================================
@@ -65,6 +68,10 @@ type Kernel struct {
 	// running tracks whether the Kernel is active.
 	// It starts true after a successful Boot and becomes false after Shutdown.
 	running bool
+
+	// started holds all Lifecycle-enabled components that successfully started,
+	// ordered exactly by their startup sequence.
+	started []Lifecycle
 }
 
 // ============================================================
@@ -132,6 +139,61 @@ func Boot(cfg Config) (*Kernel, error) {
 		running:    true,
 	}
 
+	// Discover all unique components across core infrastructure and registry.
+	components := make(map[Component]bool)
+	for _, c := range []Component{cfg.Registry, cfg.Bus, cfg.Boundary, cfg.Permission} {
+		if c != nil {
+			components[c] = true
+		}
+	}
+	type serviceLister interface {
+		List() []string
+		Lookup(name string) (Component, error)
+	}
+	if lister, ok := cfg.Registry.(serviceLister); ok {
+		for _, name := range lister.List() {
+			if c, err := lister.Lookup(name); err == nil && c != nil {
+				components[c] = true
+			}
+		}
+	}
+
+	// Group Lifecycle-enabled components by their topological BootPhase.
+	phasedComponents := make(map[Phase][]Component)
+	for c := range components {
+		if _, isLifecycle := c.(Lifecycle); isLifecycle {
+			phase := PhaseCognitive // Safe default phase for services
+			if p, ok := c.(Phased); ok {
+				phase = p.BootPhase()
+			} else if c == cfg.Registry || c == cfg.Bus || c == cfg.Boundary || c == cfg.Permission {
+				phase = PhaseCore
+			}
+			phasedComponents[phase] = append(phasedComponents[phase], c)
+		}
+	}
+
+	// Execute startup across Phases 1 through 6 sequentially.
+	ctx := context.Background()
+	for p := PhaseCore; p <= PhaseBackground; p++ {
+		list := phasedComponents[p]
+		sort.Slice(list, func(i, j int) bool {
+			return list[i].Name() < list[j].Name()
+		})
+		for _, c := range list {
+			lc := c.(Lifecycle)
+			log.Printf("[Kernel] Starting component: %s (Phase %d)", c.Name(), p)
+			if err := lc.Start(ctx); err != nil {
+				k.running = false
+				for i := len(k.started) - 1; i >= 0; i-- {
+					_ = k.started[i].Close()
+				}
+				k.started = nil
+				return nil, fmt.Errorf("kernel: Boot failed starting component %q (phase %d): %w", c.Name(), p, err)
+			}
+			k.started = append(k.started, lc)
+		}
+	}
+
 	// Log every registered component so startup is fully transparent.
 	// The format is intentionally aligned for easy reading in a terminal.
 	log.Println("[Kernel] Boot successful")
@@ -166,6 +228,10 @@ func (k *Kernel) Shutdown() {
 		return
 	}
 	k.running = false
+	for i := len(k.started) - 1; i >= 0; i-- {
+		_ = k.started[i].Close()
+	}
+	k.started = nil
 	log.Println("[Kernel] Shutdown complete")
 }
 
@@ -184,4 +250,14 @@ func (k *Kernel) Shutdown() {
 // without changing the method signature — that is the extension point.
 func (k *Kernel) IsRunning() bool {
 	return k.running
+}
+
+// StartedCount returns the number of Lifecycle components that successfully started.
+func (k *Kernel) StartedCount() int {
+	return len(k.started)
+}
+
+// Registry returns the underlying service registry.
+func (k *Kernel) Registry() Component {
+	return k.registry
 }

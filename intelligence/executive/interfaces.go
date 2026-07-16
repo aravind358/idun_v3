@@ -4,6 +4,8 @@ package executive
 import (
 	"context"
 	"time"
+
+	"idun/intelligence/attention"
 )
 
 // ============================================================================
@@ -11,16 +13,7 @@ import (
 // ============================================================================
 
 // AttentionGate defines the capability to triage incoming stimuli against active goals.
-type AttentionGate interface {
-	// Evaluate inspects a Stimulus against current ActiveGoalContext and assigns triage salience.
-	Evaluate(s Stimulus) (SalienceDecision, PriorityBand)
-
-	// SetActiveGoal updates the lightweight active goal reference header.
-	SetActiveGoal(goal ActiveGoalContext)
-
-	// GetActiveGoal returns the currently active goal reference header.
-	GetActiveGoal() ActiveGoalContext
-}
+type AttentionGate = attention.Gate
 
 // PriorityEngine defines the capability to rank and preempt workflows across Priority Bands 0..4.
 type PriorityEngine interface {

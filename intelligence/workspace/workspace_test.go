@@ -187,3 +187,33 @@ func TestConcurrentWorkspaceLoad(t *testing.T) {
 		t.Fatalf("expected 100 deliveries, got %d", delivered)
 	}
 }
+
+func TestWorkspaceEpisodeGraphCoordination(t *testing.T) {
+	ws := workspace.NewEngine()
+	_ = ws.Start()
+	defer ws.Close()
+
+	ctx := context.Background()
+
+	// Register hierarchy
+	_ = ws.RegisterEpisodeChild(ctx, "ep-root", "ep-child-1")
+	_ = ws.RegisterEpisodeChild(ctx, "ep-root", "ep-child-2")
+	children, err := ws.GetEpisodeChildren(ctx, "ep-root")
+	if err != nil || len(children) != 2 {
+		t.Fatalf("expected 2 children, got %v (err=%v)", children, err)
+	}
+
+	// Register dependencies
+	_ = ws.RegisterEpisodeDependencies(ctx, "ep-child-2", []string{"ep-child-1"})
+	ready, err := ws.IsEpisodeReady(ctx, "ep-child-2")
+	if err != nil || ready {
+		t.Fatalf("expected ep-child-2 not ready, got %v (err=%v)", ready, err)
+	}
+
+	// Notify dependency complete
+	_ = ws.NotifyDependencyComplete(ctx, "ep-child-1")
+	ready, err = ws.IsEpisodeReady(ctx, "ep-child-2")
+	if err != nil || !ready {
+		t.Fatalf("expected ep-child-2 ready after dependency notification, got %v (err=%v)", ready, err)
+	}
+}
