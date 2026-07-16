@@ -316,10 +316,19 @@ func (sc SelfCalibrationReport) Validate() error {
 	return validateConfidence("reflection_reliability", sc.ReflectionReliability)
 }
 
+// ReportCategory classifies the cognitive target of a ReflectionReport.
+type ReportCategory string
+
+const (
+	ReportCategoryCognitivePerformance ReportCategory = "COGNITIVE_PERFORMANCE"
+	ReportCategoryLearningDiagnostics  ReportCategory = "LEARNING_DIAGNOSTICS"
+)
+
 // ReflectionReport is the canonical immutable output envelope published by Reflection to the Global Workspace.
 type ReflectionReport struct {
 	SchemaVersion              string                      `json:"schema_version"`
 	ReportID                   string                      `json:"report_id"`
+	Category                   ReportCategory              `json:"category,omitempty"`
 	EpisodeID                  string                      `json:"episode_id,omitempty"`
 	SummaryID                  string                      `json:"summary_id,omitempty"`
 	TimeWindow                 *TimeWindowSpec             `json:"time_window,omitempty"`
