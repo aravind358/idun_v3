@@ -30,9 +30,20 @@ type WorkspacePublisher interface {
 	Publish(ctx context.Context, env communication.Envelope) error
 }
 
-// PayloadStorer defines the functional interface required to persist payloads to CAS storage.
+// WorkspaceSubscription represents an active subscription.
+type WorkspaceSubscription interface {
+	Cancel() error
+}
+
+// WorkspaceSubscriber defines the interface for subscribing to Workspace topics.
+type WorkspaceSubscriber interface {
+	Subscribe(topic communication.TopicID, subscriberID string, handler func(ctx context.Context, env communication.Envelope) error) (WorkspaceSubscription, error)
+}
+
+// PayloadStorer defines the functional interface required to persist and retrieve payloads from CAS storage.
 type PayloadStorer interface {
 	Store(ctx context.Context, data []byte) (string, error)
+	Retrieve(ctx context.Context, key string) ([]byte, error)
 }
 
 // EnvelopeFromPlan packages a completed Plan into a canonical Global Workspace Envelope
@@ -142,6 +153,7 @@ func PublishPlan(
 	plan *Plan,
 	storer PayloadStorer,
 	publisher WorkspacePublisher,
+	parentRefs ...string,
 ) (communication.Envelope, error) {
 	if plan == nil {
 		return communication.Envelope{}, ErrInvalidPlan
@@ -167,6 +179,9 @@ func PublishPlan(
 	if err != nil {
 		return communication.Envelope{}, err
 	}
+	if len(parentRefs) > 0 && parentRefs[0] != "" {
+		env.ParentRef = parentRefs[0]
+	}
 
 	if err := publisher.Publish(ctx, env); err != nil {
 		return communication.Envelope{}, fmt.Errorf("planning: failed to publish envelope to workspace: %w", err)
@@ -181,6 +196,7 @@ func PublishPlanningTrace(
 	trace *PlanningTrace,
 	storer PayloadStorer,
 	publisher WorkspacePublisher,
+	parentRefs ...string,
 ) (communication.Envelope, error) {
 	if trace == nil {
 		return communication.Envelope{}, ErrInvalidPlanningTrace
@@ -206,6 +222,9 @@ func PublishPlanningTrace(
 	if err != nil {
 		return communication.Envelope{}, err
 	}
+	if len(parentRefs) > 0 && parentRefs[0] != "" {
+		env.ParentRef = parentRefs[0]
+	}
 
 	if err := publisher.Publish(ctx, env); err != nil {
 		return communication.Envelope{}, fmt.Errorf("planning: failed to publish trace envelope: %w", err)
@@ -220,6 +239,7 @@ func PublishPlanningResult(
 	result *PlanningResult,
 	storer PayloadStorer,
 	publisher WorkspacePublisher,
+	parentRefs ...string,
 ) (communication.Envelope, error) {
 	if result == nil {
 		return communication.Envelope{}, ErrInvalidPlanningResult
@@ -244,6 +264,9 @@ func PublishPlanningResult(
 	env, err := EnvelopeFromPlanningResult(result, payloadRef)
 	if err != nil {
 		return communication.Envelope{}, err
+	}
+	if len(parentRefs) > 0 && parentRefs[0] != "" {
+		env.ParentRef = parentRefs[0]
 	}
 
 	if err := publisher.Publish(ctx, env); err != nil {

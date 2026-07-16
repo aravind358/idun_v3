@@ -37,6 +37,12 @@ func (c Config) Validate() error {
 // Option configures functional overrides for Config.
 type Option func(*Config)
 
+// PayloadStorer defines the interface required to persist and retrieve payloads to/from CAS storage.
+type PayloadStorer interface {
+	Store(ctx context.Context, data []byte) (string, error)
+	Retrieve(ctx context.Context, key string) ([]byte, error)
+}
+
 // WithConfigOptions applies functional options to a default Config.
 func WithConfigOptions(opts ...Option) Config {
 	c := Config{

@@ -33,10 +33,24 @@ type ServiceV2 struct {
 	beta         float64
 	policyHolder *PolicySnapshotHolder
 	capsHolder   *CapabilitiesSnapshotHolder
+
+	// Workspace bridge for consuming TopicEvaluatedOptions from Decision.
+	storer     ExecutivePayloadStorer
+	subscriber ExecutiveWorkspaceSubscriber
+	evSub      ExecutiveWorkspaceSubscription
 }
 
 // OptionV2 configures functional options for ServiceV2 construction.
 type OptionV2 func(*ServiceV2)
+
+// WithWorkspaceBridgeOpt injects the CAS storer and Workspace subscriber used by Executive
+// to consume TopicEvaluatedOptions envelopes from Decision and coordinate execution.
+func WithWorkspaceBridgeOpt(storer ExecutivePayloadStorer, sub ExecutiveWorkspaceSubscriber) OptionV2 {
+	return func(s *ServiceV2) {
+		s.storer = storer
+		s.subscriber = sub
+	}
+}
 
 // WithAlphaBeta configures custom Effective Priority formula weights.
 func WithAlphaBeta(alpha, beta float64) OptionV2 {
@@ -138,7 +152,8 @@ func (s *ServiceV2) UpdatePolicy(profile *ExecutivePolicyProfile) error {
 }
 
 // Start boots both Version 1 and Version 2.0 lifecycle hooks.
-
+// If a Workspace bridge was configured, it subscribes to TopicEvaluatedOptions
+// to receive Decision artifacts and coordinate execution.
 func (s *ServiceV2) Start() error {
 	if err := s.ExecutiveService.Start(); err != nil {
 		return err
@@ -147,6 +162,17 @@ func (s *ServiceV2) Start() error {
 	defer s.mu.Unlock()
 	if s.closedV2 {
 		return ErrExecutiveV2Closed
+	}
+	if s.subscriber != nil && s.evSub == nil {
+		sub, err := s.subscriber.Subscribe(
+			communication.TopicEvaluatedOptions,
+			"Intelligence.Executive",
+			s.handleEvaluatedOptions,
+		)
+		if err != nil {
+			return fmt.Errorf("executive: failed to subscribe to TopicEvaluatedOptions: %w", err)
+		}
+		s.evSub = sub
 	}
 	return nil
 }
@@ -157,11 +183,79 @@ func (s *ServiceV2) Close() error {
 	if !s.closedV2 {
 		s.closedV2 = true
 	}
+	if s.evSub != nil {
+		_ = s.evSub.Cancel()
+		s.evSub = nil
+	}
 	s.mu.Unlock()
 	return s.ExecutiveService.Close()
 }
 
-// SubmitBid enqueues a candidate Envelope bid into the specified Horizon queue for arbitration.
+// handleEvaluatedOptions is the Workspace subscription handler for TopicEvaluatedOptions.
+// It receives evaluated decision artifacts from Decision.Service and coordinates execution
+// by submitting the envelope as an action bid and running Executive arbitration.
+//
+// Executive Functions responsibilities performed here:
+//   - Validate envelope control-plane fields (topic, payloadRef, schema)
+//   - Apply budget enforcement via ConsumeBudget
+//   - Submit bid to TopicActionExecution pending queue
+//   - Run ArbitrateCompetition to enforce Constitution and publish to World
+//
+// Executive Functions does NOT: reason, plan, learn, re-evaluate candidates, or
+// inspect the semantic content of the PayloadRef.
+func (s *ServiceV2) handleEvaluatedOptions(ctx context.Context, env communication.Envelope) error {
+	s.mu.RLock()
+	closed := s.closedV2
+	s.mu.RUnlock()
+	if closed {
+		return nil
+	}
+
+	// Step 1: Validate the envelope control-plane fields.
+	if env.ID == "" || env.Topic != communication.TopicEvaluatedOptions || env.PayloadRef == "" {
+		return fmt.Errorf("executive: received invalid TopicEvaluatedOptions envelope: missing required fields")
+	}
+	if err := env.Validate(); err != nil {
+		return fmt.Errorf("executive: TopicEvaluatedOptions envelope failed validation: %w", err)
+	}
+
+	parentID := env.ParentRef
+	if parentID == "" {
+		parentID = env.ID
+	}
+
+	// Step 2: Build a content-blind action bid envelope for TopicActionExecution.
+	// Executive is content-blind: it reuses the PayloadRef from Decision unchanged.
+	actionEnv, err := communication.NewEnvelopeBuilder().
+		WithSource("Intelligence.Executive").
+		WithTopic(communication.TopicActionExecution).
+		WithParentRef(parentID).
+		WithPayloadRef(env.PayloadRef).
+		WithModality(env.PayloadModality).
+		WithConfidence(env.RawConfidence).
+		WithUrgency(env.Urgency).
+		WithCostEstimate(env.CostEstimateUnits).
+		Build()
+	if err != nil {
+		return fmt.Errorf("executive: failed to build action execution envelope: %w", err)
+	}
+
+	// Step 3: Submit bid to TopicActionExecution pending queue (budget enforcement + Constitution).
+	if err := s.SubmitBid(ctx, actionEnv, HorizonDeliberative); err != nil {
+		return fmt.Errorf("executive: failed to submit action bid: %w", err)
+	}
+
+	// Step 4: Arbitrate competition — enforces Constitution gate, deducts budget,
+	// and publishes winner to TopicActionExecution (which World subscribes to).
+	_, err = s.ArbitrateCompetition(ctx, communication.TopicActionExecution, 0.0)
+	if err != nil {
+		return fmt.Errorf("executive: arbitration failed for TopicActionExecution: %w", err)
+	}
+
+	return nil
+}
+
+
 func (s *ServiceV2) SubmitBid(ctx context.Context, env communication.Envelope, horizon Horizon) error {
 	if ctx == nil {
 		ctx = context.Background()

@@ -87,3 +87,10 @@ type Specialist interface {
 	// ID returns the cascade stage identifier for this specialist.
 	ID() StageIdentifier
 }
+
+// PayloadStorer defines the interface required to persist and retrieve payloads to/from CAS storage.
+// Reasoning uses this to store the ReasoningResult before publishing the envelope PayloadRef.
+type PayloadStorer interface {
+	Store(ctx context.Context, data []byte) (string, error)
+	Retrieve(ctx context.Context, key string) ([]byte, error)
+}

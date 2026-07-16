@@ -48,10 +48,11 @@ func TestService_OrchestrationWithSpecialistsAndWorkspace(t *testing.T) {
 
 	storer := &mockStorer{}
 	pub := &mockPublisher{}
+	sub := &mockSubscriber{}
 
 	svc := NewService(
 		WithSpecialistRegistry(reg),
-		WithWorkspaceBridge(storer, pub),
+		WithWorkspaceBridge(storer, pub, sub),
 	)
 	_ = svc.Start()
 	defer svc.Close()
@@ -205,3 +206,101 @@ func TestService_ValidationFirewall(t *testing.T) {
 		t.Error("expected Stage 0 Validation Firewall to intercept invalid request")
 	}
 }
+
+// TestService_ActiveGoalsBridge verifies that Planning subscribes to TopicActiveGoals
+// and correctly invokes the planning pipeline when a ReasoningResult envelope arrives.
+func TestService_ActiveGoalsBridge(t *testing.T) {
+	// Set up a CAS storer that holds a ReasoningResult payload.
+	storer := &casStorer{data: make(map[string][]byte)}
+	pub := &capturingPublisher{}
+	sub := &recordingSubscriber{}
+
+	svc := NewService(
+		WithWorkspaceBridge(storer, pub, sub),
+	)
+
+	if err := svc.Start(); err != nil {
+		t.Fatalf("failed to start planning service: %v", err)
+	}
+	defer svc.Close()
+
+	// Verify subscription was registered on TopicActiveGoals.
+	if sub.topic != communication.TopicActiveGoals {
+		t.Errorf("expected subscription on TopicActiveGoals, got %q", sub.topic)
+	}
+	if sub.subscriberID != "Intelligence.Planning" {
+		t.Errorf("expected subscriberID 'Intelligence.Planning', got %q", sub.subscriberID)
+	}
+
+	// Synthesize a serialized ReasoningResult payload and store it in CAS.
+	payload := []byte(`{"schema_version":"2.0","envelope_id":"rs-env-1","source_frame_id":"sf-1","status":"UNAMBIGUOUS_SOLVED","strategy_used":"","primary_hypothesis":{"id":"hyp-1","type":"DEDUCTIVE","conclusion":"help the user with their question","reasoning_confidence":0.9,"calibrated_confidence":0.9,"contributing_stages":[],"supporting_premises":[],"evidence_trace":""},"ambiguity_set":[],"contradictions_flagged":[],"proposed_belief_updates":[],"strategy_telemetry":{"episode_id":"","strategy_selected":"","specialists_executed":null,"execution_duration_ms":0,"calibrated_confidence":0,"resource_cost_tier":"","escalated_to_llm":false},"constitution_annotations":[],"reasoning_trace":[],"offline_mode":true,"processed_duration_ms":0}`)
+	casKey, _ := storer.Store(context.Background(), payload)
+
+	// Build and deliver a TopicActiveGoals envelope.
+	env := communication.Envelope{
+		ID:         "env-active-goals-1",
+		Source:     "Intelligence.Reasoning",
+		Topic:      communication.TopicActiveGoals,
+		PayloadRef: casKey,
+	}
+
+	if err := sub.handler(context.Background(), env); err != nil {
+		t.Fatalf("handleActiveGoal returned unexpected error: %v", err)
+	}
+}
+
+// casStorer is a simple CAS mock that stores and retrieves by a deterministic key.
+type casStorer struct {
+	mu   sync.Mutex
+	data map[string][]byte
+	seq  int
+}
+
+func (c *casStorer) Store(_ context.Context, data []byte) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.seq++
+	key := fmt.Sprintf("cas://key-%d", c.seq)
+	c.data[key] = data
+	return key, nil
+}
+
+func (c *casStorer) Retrieve(_ context.Context, key string) ([]byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	d, ok := c.data[key]
+	if !ok {
+		return nil, fmt.Errorf("cas: key not found: %s", key)
+	}
+	return d, nil
+}
+
+// capturingPublisher captures envelopes published to the Workspace.
+type capturingPublisher struct {
+	mu   sync.Mutex
+	envs []communication.Envelope
+}
+
+func (p *capturingPublisher) Publish(_ context.Context, env communication.Envelope) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.envs = append(p.envs, env)
+	return nil
+}
+
+// recordingSubscriber captures the Subscribe call for verification.
+type recordingSubscriber struct {
+	topic        communication.TopicID
+	subscriberID string
+	handler      func(ctx context.Context, env communication.Envelope) error
+}
+
+func (r *recordingSubscriber) Subscribe(topic communication.TopicID, subscriberID string, handler func(ctx context.Context, env communication.Envelope) error) (WorkspaceSubscription, error) {
+	r.topic = topic
+	r.subscriberID = subscriberID
+	r.handler = handler
+	return nil, nil
+}
+
+// Ensure time import is used.
+var _ = time.Second

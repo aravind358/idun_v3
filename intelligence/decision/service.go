@@ -2,11 +2,14 @@ package decision
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sync"
 	"time"
 
+	"idun/intelligence/communication"
 	"idun/intelligence/executive"
 )
 
@@ -22,6 +25,11 @@ type DefaultDecisionService struct {
 
 	// traces holds in-memory O(1) episode traces keyed by episode ID
 	traces map[string]*ReflexiveDecisionTrace
+
+	storer     PayloadStorer
+	publisher  WorkspacePublisher
+	subscriber WorkspaceSubscriber
+	sub        WorkspaceSubscription
 }
 
 // Option configures DefaultDecisionService dependencies.
@@ -48,6 +56,15 @@ func WithStrategyProvider(prov StrategyProvider) Option {
 	}
 }
 
+// WithWorkspaceBridge injects the Workspace substrate for consuming and publishing candidate plans.
+func WithWorkspaceBridge(storer PayloadStorer, pub WorkspacePublisher, sub WorkspaceSubscriber) Option {
+	return func(s *DefaultDecisionService) {
+		s.storer = storer
+		s.publisher = pub
+		s.subscriber = sub
+	}
+}
+
 // NewService constructs a DefaultDecisionService with sensible defaults.
 func NewService(opts ...Option) *DefaultDecisionService {
 	s := &DefaultDecisionService{
@@ -71,6 +88,19 @@ func (s *DefaultDecisionService) Ability() executive.CognitiveAbility {
 func (s *DefaultDecisionService) Start() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	
+	if s.started {
+		return nil
+	}
+
+	if s.subscriber != nil && s.sub == nil {
+		sub, err := s.subscriber.Subscribe(communication.TopicCandidatePlans, "Intelligence.Decision", s.handleCandidatePlans)
+		if err != nil {
+			return fmt.Errorf("decision: failed to subscribe to TopicCandidatePlans: %w", err)
+		}
+		s.sub = sub
+	}
+
 	s.started = true
 	return nil
 }
@@ -80,6 +110,10 @@ func (s *DefaultDecisionService) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.started = false
+	if s.sub != nil {
+		_ = s.sub.Cancel()
+		s.sub = nil
+	}
 	return nil
 }
 
@@ -101,6 +135,94 @@ func (s *DefaultDecisionService) GetEpisodeTrace(episodeID string) (*ReflexiveDe
 	defer s.mu.RUnlock()
 	trace, ok := s.traces[episodeID]
 	return trace, ok
+}
+
+type planPayload struct {
+	PlanID            string  `json:"plan_id"`
+	Goal              string  `json:"goal"`
+	Domain            string  `json:"domain"`
+	EstimatedCost     float64 `json:"estimated_cost"`
+	ConfidenceProfile struct {
+		OverallConfidence float64 `json:"overall_confidence"`
+	} `json:"confidence_profile"`
+	SourceTier string `json:"source_tier"`
+}
+
+type planningResultPayload struct {
+	ResultID string         `json:"result_id"`
+	Plans    []*planPayload `json:"plans"`
+}
+
+func (s *DefaultDecisionService) handleCandidatePlans(ctx context.Context, env communication.Envelope) error {
+	s.mu.RLock()
+	if !s.started {
+		s.mu.RUnlock()
+		return nil
+	}
+	s.mu.RUnlock()
+
+	if env.ID == "" || env.Topic != communication.TopicCandidatePlans || env.PayloadRef == "" {
+		return errors.New("decision: invalid candidate plans envelope")
+	}
+
+	if s.storer == nil || s.publisher == nil {
+		return errors.New("decision: workspace bridge not fully configured")
+	}
+
+	data, err := s.storer.Retrieve(ctx, env.PayloadRef)
+	if err != nil {
+		return fmt.Errorf("decision: failed to retrieve candidate plans payload: %w", err)
+	}
+
+	var resPayload planningResultPayload
+	var plans []*planPayload
+
+	if err := json.Unmarshal(data, &resPayload); err == nil && len(resPayload.Plans) > 0 {
+		plans = resPayload.Plans
+	} else {
+		var singlePlan planPayload
+		if err := json.Unmarshal(data, &singlePlan); err != nil {
+			return fmt.Errorf("decision: failed to parse payload as PlanningResult or Plan: %w", err)
+		}
+		plans = []*planPayload{&singlePlan}
+	}
+
+	cs := CandidateSet{
+		EpisodeID:  env.ID,
+		Candidates: make([]Candidate, 0, len(plans)),
+	}
+
+	for _, p := range plans {
+		if p == nil {
+			continue
+		}
+		cs.Candidates = append(cs.Candidates, Candidate{
+			ID:            p.PlanID,
+			Description:   p.Goal,
+			SourceAbility: "Planning",
+			Attributes: map[string]float64{
+				"confidence": p.ConfidenceProfile.OverallConfidence,
+				"cost":       p.EstimatedCost,
+			},
+		})
+	}
+
+	if len(cs.Candidates) == 0 {
+		return errors.New("decision: parsed envelope yielded no valid candidates")
+	}
+
+	// Always trigger Deliberative mode for planning artifact evaluation.
+	rec, err := s.EvaluateDeliberative(ctx, cs)
+	if err != nil {
+		return fmt.Errorf("decision: failed to evaluate candidate plans: %w", err)
+	}
+
+	parentID := env.ParentRef
+	if parentID == "" {
+		parentID = env.ID
+	}
+	_, err = PublishDeliberativeDecision(ctx, rec, s.storer, s.publisher, parentID)
+	return err
 }
 
 // EvaluateReflexive executes fast-path linear utility scoring (<2ms budget).

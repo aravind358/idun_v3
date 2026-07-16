@@ -21,6 +21,18 @@ func (m *mockStorer) Store(ctx context.Context, data []byte) (string, error) {
 	return "storage://cas/payload-8888", nil
 }
 
+func (m *mockStorer) Retrieve(ctx context.Context, key string) ([]byte, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.storedData, nil
+}
+
+type mockSubscriber struct{}
+func (m *mockSubscriber) Subscribe(topic communication.TopicID, subscriberID string, handler func(ctx context.Context, env communication.Envelope) error) (WorkspaceSubscription, error) {
+	return nil, nil
+}
+
 type mockPublisher struct {
 	publishedEnvs []communication.Envelope
 	err           error

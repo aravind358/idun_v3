@@ -18,6 +18,10 @@ func (m *mockStorer) Store(ctx context.Context, data []byte) (string, error) {
 	return "storage://cas/test-dec-ref", nil
 }
 
+func (m *mockStorer) Retrieve(ctx context.Context, key string) ([]byte, error) {
+	return m.storedBytes, nil
+}
+
 type mockPublisher struct {
 	mu        sync.Mutex
 	envelopes []communication.Envelope

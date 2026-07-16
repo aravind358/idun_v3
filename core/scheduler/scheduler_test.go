@@ -44,6 +44,12 @@ func newMockDispatcher() *mockDispatcher {
 	}
 }
 
+func (m *mockDispatcher) setErr(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.err = err
+}
+
 func (m *mockDispatcher) Dispatch(target string, payload []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -452,7 +458,7 @@ func TestDispatch_DynamicTimerReset(t *testing.T) {
 
 func TestDispatch_DispatcherErrorLoggedAndCleanedUp(t *testing.T) {
 	disp := newMockDispatcher()
-	disp.err = errors.New("dispatch failure")
+	disp.setErr(errors.New("dispatch failure"))
 	s, mem := newTestScheduler(t, disp)
 
 	due := time.Now().UTC().Add(30 * time.Millisecond)

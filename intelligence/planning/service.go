@@ -2,12 +2,14 @@ package planning
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"idun/intelligence/communication"
 	"idun/intelligence/executive"
 )
 
@@ -26,6 +28,8 @@ type DefaultPlanningService struct {
 	fingerprinter PlanFingerprinter
 	publisher     WorkspacePublisher
 	storer        PayloadStorer
+	subscriber    WorkspaceSubscriber
+	sub           WorkspaceSubscription
 
 	// traces holds bounded in-memory Ring-Buffer of PlanningTrace items keyed by TraceID
 	traces    map[string]*PlanningTrace
@@ -68,10 +72,11 @@ func WithFingerprinter(fp PlanFingerprinter) Option {
 }
 
 // WithWorkspaceBridge configures optional Global Workspace publication dependencies.
-func WithWorkspaceBridge(storer PayloadStorer, publisher WorkspacePublisher) Option {
+func WithWorkspaceBridge(storer PayloadStorer, publisher WorkspacePublisher, subscriber WorkspaceSubscriber) Option {
 	return func(s *DefaultPlanningService) {
 		s.storer = storer
 		s.publisher = publisher
+		s.subscriber = subscriber
 	}
 }
 
@@ -107,6 +112,13 @@ func (s *DefaultPlanningService) Start() error {
 	if err := s.config.Validate(); err != nil {
 		return fmt.Errorf("planning service start failed config validation: %w", err)
 	}
+	if s.subscriber != nil && s.sub == nil {
+		sub, err := s.subscriber.Subscribe(communication.TopicActiveGoals, "Intelligence.Planning", s.handleActiveGoal)
+		if err != nil {
+			return fmt.Errorf("planning service failed to subscribe to TopicActiveGoals: %w", err)
+		}
+		s.sub = sub
+	}
 	s.started = true
 	return nil
 }
@@ -116,7 +128,68 @@ func (s *DefaultPlanningService) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.started = false
+	if s.sub != nil {
+		_ = s.sub.Cancel()
+		s.sub = nil
+	}
 	return nil
+}
+
+// reasoningResultPayload defines a local shadow struct to unpack just the needed fields
+// from a TopicActiveGoals envelope payload without creating a hard import dependency on the reasoning package.
+type reasoningResultPayload struct {
+	PrimaryHypothesis struct {
+		Conclusion string `json:"conclusion"`
+	} `json:"primary_hypothesis"`
+}
+
+// handleActiveGoal receives active goal envelopes from the Workspace and initiates planning.
+func (s *DefaultPlanningService) handleActiveGoal(ctx context.Context, env communication.Envelope) error {
+	s.mu.RLock()
+	if !s.started {
+		s.mu.RUnlock()
+		return nil
+	}
+	s.mu.RUnlock()
+
+	if env.ID == "" || env.Topic != communication.TopicActiveGoals || env.PayloadRef == "" {
+		return errors.New("planning: invalid active goal envelope")
+	}
+
+	if s.storer == nil {
+		return errors.New("planning: payload storer not configured")
+	}
+
+	data, err := s.storer.Retrieve(ctx, env.PayloadRef)
+	if err != nil {
+		return fmt.Errorf("planning: failed to retrieve active goal payload: %w", err)
+	}
+
+	var result reasoningResultPayload
+	if err := json.Unmarshal(data, &result); err != nil {
+		return fmt.Errorf("planning: failed to parse active goal payload: %w", err)
+	}
+
+	parentID := env.ParentRef
+	if parentID == "" {
+		parentID = env.ID
+	}
+
+	req := &PlanningRequest{
+		RequestID:          env.ID,
+		Goal:               result.PrimaryHypothesis.Conclusion,
+		Domain:             "General",
+		ContextRef:         env.PayloadRef,
+		TargetDepth:        DepthTactical,
+		MaxExecutionBudget: 100 * time.Millisecond,
+		MinConfidenceFloor: 0.70,
+		Metadata: map[string]string{
+			"parent_ref": parentID,
+		},
+	}
+
+	_, err = s.executePlanningEpisode(ctx, req, req.TargetDepth)
+	return err
 }
 
 // GetTrace retrieves an O(1) memory-retained PlanningTrace by its unique TraceID.
@@ -565,9 +638,13 @@ func (s *DefaultPlanningService) executePlanningEpisode(
 
 	// Publish to Global Workspace if configured and depth warrants broadcast
 	if s.publisher != nil && s.storer != nil && ShouldPublishToWorkspace(depth) {
-		_, _ = PublishPlan(ctx, plan, s.storer, s.publisher)
-		_, _ = PublishPlanningTrace(ctx, trace, s.storer, s.publisher)
-		_, _ = PublishPlanningResult(ctx, res, s.storer, s.publisher)
+		var parentID string
+		if req != nil && req.Metadata != nil {
+			parentID = req.Metadata["parent_ref"]
+		}
+		_, _ = PublishPlan(ctx, plan, s.storer, s.publisher, parentID)
+		_, _ = PublishPlanningTrace(ctx, trace, s.storer, s.publisher, parentID)
+		_, _ = PublishPlanningResult(ctx, res, s.storer, s.publisher, parentID)
 	}
 
 	return res, nil

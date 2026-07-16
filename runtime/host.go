@@ -28,6 +28,8 @@ import (
 	"idun/intelligence/understanding"
 	"idun/intelligence/workspace"
 	"idun/kernel"
+	"idun/world"
+	worldtext "idun/world/adapters/text"
 )
 
 // ErrInvalidTransition indicates an illegal lifecycle operation given current runtime status.
@@ -55,6 +57,26 @@ func (a *workspacePubAdapter) Publish(ctx context.Context, env communication.Env
 	return a.ws.Publish(ctx, env)
 }
 
+func (a *workspacePubAdapter) Subscribe(topic communication.TopicID, subscriberID string, handler func(ctx context.Context, env communication.Envelope) error) (planning.WorkspaceSubscription, error) {
+	return a.ws.Subscribe(topic, subscriberID, handler)
+}
+
+type decisionWorkspaceSubAdapter struct {
+	ws *workspace.Engine
+}
+
+func (a *decisionWorkspaceSubAdapter) Subscribe(topic communication.TopicID, subscriberID string, handler func(ctx context.Context, env communication.Envelope) error) (decision.WorkspaceSubscription, error) {
+	return a.ws.Subscribe(topic, subscriberID, handler)
+}
+
+type executiveWorkspaceSubAdapter struct {
+	ws *workspace.Engine
+}
+
+func (a *executiveWorkspaceSubAdapter) Subscribe(topic communication.TopicID, subscriberID string, handler func(ctx context.Context, env communication.Envelope) error) (executive.ExecutiveWorkspaceSubscription, error) {
+	return a.ws.Subscribe(topic, subscriberID, handler)
+}
+
 type payloadStorerAdapter struct {
 	store *storage.Storage
 }
@@ -66,6 +88,10 @@ func (a *payloadStorerAdapter) Store(ctx context.Context, data []byte) (string, 
 		return "", err
 	}
 	return key, nil
+}
+
+func (a *payloadStorerAdapter) Retrieve(ctx context.Context, key string) ([]byte, error) {
+	return a.store.Read(key)
 }
 
 // RuntimeHost is the master orchestrator responsible for constructing, wiring,
@@ -107,18 +133,37 @@ type RuntimeHost struct {
 	decisionSvc  *decision.DefaultDecisionService
 	reflectSvc   *reflection.Service
 	learningSvc  *learning.Service
+
+	// World boundary subsystem
+	worldSvc  *world.Service
+	inReader  io.Reader
+	outWriter io.Writer
+}
+
+type HostOption func(*RuntimeHost)
+
+// WithIOReaders injects custom I/O readers/writers for the World boundary subsystem.
+func WithIOReaders(in io.Reader, out io.Writer) HostOption {
+	return func(h *RuntimeHost) {
+		h.inReader = in
+		h.outWriter = out
+	}
 }
 
 // NewHost initializes a new RuntimeHost in STOPPED state.
-func NewHost(cfg RuntimeConfiguration) (*RuntimeHost, error) {
+func NewHost(cfg RuntimeConfiguration, opts ...HostOption) (*RuntimeHost, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("runtime host config validation failed: %w", err)
 	}
-	return &RuntimeHost{
+	h := &RuntimeHost{
 		cfg:      cfg,
 		status:   StatusStopped,
 		wrappers: make(map[string]*ComponentWrapper),
-	}, nil
+	}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h, nil
 }
 
 // Configure updates runtime configuration if the host is stopped.
@@ -236,23 +281,53 @@ func (h *RuntimeHost) Build() error {
 		attention.WithWorkspacePublisher(&workspacePubAdapter{ws: h.workspaceSvc}, &payloadStorerAdapter{store: storeSvc}),
 	)
 
-	execSvc, err := executive.NewServiceV2(h.workspaceSvc, h.calibSvc, h.constGate, h.cfg.InitialExecutiveBudget)
+	execSvc, err := executive.NewServiceV2(
+		h.workspaceSvc,
+		h.calibSvc,
+		h.constGate,
+		h.cfg.InitialExecutiveBudget,
+		executive.WithWorkspaceBridgeOpt(
+			&payloadStorerAdapter{store: storeSvc},
+			&executiveWorkspaceSubAdapter{ws: h.workspaceSvc},
+		),
+	)
 	if err != nil {
 		return fmt.Errorf("failed to construct executive service: %w", err)
 	}
 	h.executiveSvc = execSvc
 
 	if h.isSubsystemEnabled("understanding") {
-		h.underSvc = understanding.NewService(understanding.WithConfigOptions(), h.workspaceSvc)
+		h.underSvc = understanding.NewService(
+			understanding.WithConfigOptions(),
+			h.workspaceSvc,
+			understanding.WithPayloadStorer(&payloadStorerAdapter{store: storeSvc}),
+		)
 	}
 	if h.isSubsystemEnabled("reasoning") {
-		h.reasonSvc = reasoning.NewService(reasoning.DefaultConfig(), h.workspaceSvc, memSvc)
+		h.reasonSvc = reasoning.NewService(
+			reasoning.DefaultConfig(),
+			h.workspaceSvc,
+			memSvc,
+			reasoning.WithPayloadStorer(&payloadStorerAdapter{store: storeSvc}),
+		)
 	}
 	if h.isSubsystemEnabled("planning") {
-		h.planSvc = planning.NewService()
+		h.planSvc = planning.NewService(
+			planning.WithWorkspaceBridge(
+				&payloadStorerAdapter{store: storeSvc},
+				&workspacePubAdapter{ws: h.workspaceSvc},
+				&workspacePubAdapter{ws: h.workspaceSvc},
+			),
+		)
 	}
 	if h.isSubsystemEnabled("decision") {
-		h.decisionSvc = decision.NewService()
+		h.decisionSvc = decision.NewService(
+			decision.WithWorkspaceBridge(
+				&payloadStorerAdapter{store: storeSvc},
+				&workspacePubAdapter{ws: h.workspaceSvc},
+				&decisionWorkspaceSubAdapter{ws: h.workspaceSvc},
+			),
+		)
 	}
 	if h.isSubsystemEnabled("reflection") {
 		h.reflectSvc = reflection.NewService()
@@ -263,6 +338,37 @@ func (h *RuntimeHost) Build() error {
 			return fmt.Errorf("failed to construct learning service: %w", err)
 		}
 		h.learningSvc = ls
+	}
+
+	// World boundary subsystem — registered at PhaseBackground (after all cognitive subsystems).
+	// Uses os.Stdin and os.Stdout for Phase 1 text I/O. Future adapters inject alternative readers/writers.
+	if h.isSubsystemEnabled("world") {
+		inR := h.inReader
+		if inR == nil {
+			inR = os.Stdin
+		}
+		outW := h.outWriter
+		if outW == nil {
+			outW = os.Stdout
+		}
+		inputAdapter, inputErr := worldtext.NewTextInputAdapter(inR)
+		outputAdapter, outputErr := worldtext.NewTextOutputAdapter(outW)
+		if inputErr != nil {
+			return fmt.Errorf("failed to construct World TextInputAdapter: %w", inputErr)
+		}
+		if outputErr != nil {
+			return fmt.Errorf("failed to construct World TextOutputAdapter: %w", outputErr)
+		}
+		worldSvc, worldErr := world.NewService(
+			h.workspaceSvc,
+			inputAdapter,
+			outputAdapter,
+			&payloadStorerAdapter{store: h.storageSvc},
+		)
+		if worldErr != nil {
+			return fmt.Errorf("failed to construct World service: %w", worldErr)
+		}
+		h.worldSvc = worldSvc
 	}
 
 	h.built = true
@@ -376,6 +482,9 @@ func (h *RuntimeHost) Register() error {
 	if h.learningSvc != nil {
 		registerWrap("Intelligence.Learning", kernel.PhaseBackground, h.learningSvc)
 	}
+	if h.worldSvc != nil {
+		registerWrap("World.Service", kernel.PhaseBackground, h.worldSvc)
+	}
 
 	h.registered = true
 	return nil
@@ -444,6 +553,9 @@ func (h *RuntimeHost) Start(ctx context.Context) error {
 		if !h.isSubsystemEnabled(optional) {
 			skipped = append(skipped, "Intelligence."+optional)
 		}
+	}
+	if !h.isSubsystemEnabled("world") {
+		skipped = append(skipped, "World.Service")
 	}
 
 	h.manifest = GenerateManifest(h.cfg.RuntimeVersion, subsysVersions, policyHashes, capHashes)

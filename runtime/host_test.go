@@ -1,10 +1,13 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestRuntimeHost_Lifecycle(t *testing.T) {
@@ -178,4 +181,47 @@ func TestRuntimeHost_ManifestDeterminism(t *testing.T) {
 	if fp1 != fp2 {
 		t.Fatalf("Expected deterministic ManifestFingerprint across runs, got %s and %s", fp1, fp2)
 	}
+}
+
+func TestLayer1EndToEndRuntimeDemonstration(t *testing.T) {
+	tempDir := filepath.Join(os.TempDir(), "idun_runtime_test_e2e")
+	_ = os.RemoveAll(tempDir)
+	defer os.RemoveAll(tempDir)
+
+	cfg := DefaultConfiguration()
+	cfg.StoragePath = tempDir
+	cfg.EnableLogging = false
+
+	input := bytes.NewReader([]byte("Hello IDUN\n"))
+	outBuf := &bytes.Buffer{}
+
+	h, err := NewHost(cfg, WithIOReaders(input, outBuf))
+	if err != nil {
+		t.Fatalf("NewHost failed: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := h.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer h.Stop()
+
+	// Wait up to 3 seconds for the cognitive pipeline (Understanding -> Reasoning -> Planning -> Decision -> Executive -> World)
+	// to process the input and emit the final output response through TextOutputAdapter.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if outBuf.Len() > 0 && strings.TrimSpace(outBuf.String()) != "" {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if outBuf.Len() == 0 || strings.TrimSpace(outBuf.String()) == "" {
+		t.Fatalf("expected complete response through TextOutputAdapter from single text interaction, got empty output: %q", outBuf.String())
+	}
+
+	outputStr := outBuf.String()
+	t.Logf("End-to-End Runtime Demonstration Output:\n%s", outputStr)
 }

@@ -29,6 +29,8 @@ type Service struct {
 	telemetry    *telemetryCollector
 	tau          float64
 	ws           workspace.Workspace
+	storer       PayloadStorer
+	sub          workspace.Subscription
 	closed       bool
 }
 
@@ -99,6 +101,13 @@ func WithAmbiguityThreshold(delta float64) ServiceOption {
 	}
 }
 
+// WithPayloadStorer injects a content-addressed storage bridge for payload retrieval and persistence.
+func WithPayloadStorer(storer PayloadStorer) ServiceOption {
+	return func(s *Service) {
+		s.storer = storer
+	}
+}
+
 // NewService constructs a thread-safe Understanding Service.
 func NewService(cfg Config, ws workspace.Workspace, opts ...ServiceOption) *Service {
 	s := &Service{
@@ -143,6 +152,13 @@ func (s *Service) Start() error {
 	if s.deliberative != nil {
 		_ = s.deliberative.Start()
 	}
+	if s.ws != nil && s.sub == nil {
+		sub, err := s.ws.Subscribe(communication.TopicPerception, s.Name(), s.handlePerceptionEnvelope)
+		if err != nil {
+			return fmt.Errorf("understanding: failed to subscribe to TopicPerception: %w", err)
+		}
+		s.sub = sub
+	}
 	return nil
 }
 
@@ -151,10 +167,52 @@ func (s *Service) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.closed = true
+	if s.sub != nil {
+		_ = s.sub.Cancel()
+		s.sub = nil
+	}
 	if s.deliberative != nil {
 		_ = s.deliberative.Close()
 	}
 	return nil
+}
+
+// handlePerceptionEnvelope is the asynchronous Workspace subscription callback.
+// It consumes raw perception envelopes published to TopicPerception (e.g. from World),
+// validates the envelope and schema, retrieves the payload from content-addressed storage
+// via PayloadStorer if applicable, interprets the perceptual input, and publishes
+// the resulting SemanticFrame to the downstream topic (TopicUserIntent).
+func (s *Service) handlePerceptionEnvelope(ctx context.Context, env communication.Envelope) error {
+	s.mu.RLock()
+	if s.closed {
+		s.mu.RUnlock()
+		return nil
+	}
+	s.mu.RUnlock()
+
+	if env.ID == "" {
+		s.telemetry.recordValidationFailure()
+		return errors.New("understanding: perception envelope validation failed: empty ID")
+	}
+	if env.Topic != communication.TopicPerception {
+		s.telemetry.recordValidationFailure()
+		return fmt.Errorf("understanding: expected topic %q, got %q", communication.TopicPerception, env.Topic)
+	}
+	if env.PayloadRef == "" {
+		s.telemetry.recordValidationFailure()
+		return errors.New("understanding: perception envelope validation failed: empty PayloadRef")
+	}
+
+	modifiedEnv := env
+	if s.storer != nil {
+		data, err := s.storer.Retrieve(ctx, env.PayloadRef)
+		if err == nil && len(data) > 0 {
+			modifiedEnv.PayloadRef = string(data)
+		}
+	}
+
+	_, err := s.InterpretEnvelope(ctx, modifiedEnv)
+	return err
 }
 
 // InterpretEnvelope interprets raw perceptual input deterministically and speculatively,
@@ -255,12 +313,23 @@ func (s *Service) interpretInternal(ctx context.Context, perceptionEnv communica
 
 			if s.ws != nil {
 				payloadBytes, _ := json.Marshal(delibFrame)
+				payloadRef := string(payloadBytes)
+				if s.storer != nil {
+					if key, storeErr := s.storer.Store(ctx, payloadBytes); storeErr == nil {
+						payloadRef = key
+					}
+				}
+				parentID := perceptionEnv.ParentRef
+				if parentID == "" {
+					parentID = perceptionEnv.ID
+				}
 				pubEnv := communication.Envelope{
 					ID:            fmt.Sprintf("frame-%s", perceptionEnv.ID),
+					ParentRef:     parentID,
 					Source:        s.Name(),
 					Topic:         communication.TopicUserIntent,
 					RawConfidence: delibFrame.PrimaryHypothesis.CalibratedConfidence,
-					PayloadRef:    string(payloadBytes),
+					PayloadRef:    payloadRef,
 					CreatedAt:     time.Now().UTC(),
 				}
 				_ = s.ws.Publish(ctx, pubEnv)
@@ -315,12 +384,23 @@ func (s *Service) interpretInternal(ctx context.Context, perceptionEnv communica
 
 	if frame.Status != StatusFailedImpasse && s.ws != nil {
 		payloadBytes, _ := json.Marshal(frame)
+		payloadRef := string(payloadBytes)
+		if s.storer != nil {
+			if key, storeErr := s.storer.Store(ctx, payloadBytes); storeErr == nil {
+				payloadRef = key
+			}
+		}
+		parentID := perceptionEnv.ParentRef
+		if parentID == "" {
+			parentID = perceptionEnv.ID
+		}
 		pubEnv := communication.Envelope{
 			ID:            fmt.Sprintf("frame-%s", perceptionEnv.ID),
+			ParentRef:     parentID,
 			Source:        s.Name(),
 			Topic:         communication.TopicUserIntent,
 			RawConfidence: frame.PrimaryHypothesis.CalibratedConfidence,
-			PayloadRef:    string(payloadBytes),
+			PayloadRef:    payloadRef,
 			CreatedAt:     time.Now().UTC(),
 		}
 		_ = s.ws.Publish(ctx, pubEnv)

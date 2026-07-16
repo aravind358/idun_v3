@@ -2,9 +2,12 @@ package decision
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"testing"
+
+	"idun/intelligence/communication"
 )
 
 func TestDefaultDecisionService_EvaluateReflexive_Commit(t *testing.T) {
@@ -37,6 +40,87 @@ func TestDefaultDecisionService_EvaluateReflexive_Commit(t *testing.T) {
 	}
 	if rec.SelectedCandidateID != "cand-winner" {
 		t.Errorf("expected selected candidate 'cand-winner', got '%s'", rec.SelectedCandidateID)
+	}
+	if len(rec.RejectedCandidates) != 0 {
+		t.Errorf("expected 0 rejected, got %d", len(rec.RejectedCandidates))
+	}
+}
+
+type mockSub struct{}
+func (m *mockSub) Cancel() error { return nil }
+
+type mockSubscriber struct {
+	handler func(ctx context.Context, env communication.Envelope) error
+}
+func (m *mockSubscriber) Subscribe(topic communication.TopicID, subscriberID string, handler func(ctx context.Context, env communication.Envelope) error) (WorkspaceSubscription, error) {
+	m.handler = handler
+	return &mockSub{}, nil
+}
+
+type mockPayloadStorerBridge struct {
+	data map[string][]byte
+}
+func (m *mockPayloadStorerBridge) Store(ctx context.Context, data []byte) (string, error) {
+	return "storage://cas/test-key", nil
+}
+func (m *mockPayloadStorerBridge) Retrieve(ctx context.Context, key string) ([]byte, error) {
+	if m.data == nil {
+		return nil, fmt.Errorf("not found")
+	}
+	d, ok := m.data[key]
+	if !ok {
+		return nil, fmt.Errorf("not found")
+	}
+	return d, nil
+}
+
+func TestService_CandidatePlansBridge(t *testing.T) {
+	storer := &mockPayloadStorerBridge{data: make(map[string][]byte)}
+	pub := &mockPublisher{}
+	sub := &mockSubscriber{}
+
+	srv := NewService(WithWorkspaceBridge(storer, pub, sub))
+	_ = srv.Start()
+	defer srv.Close()
+
+	if sub.handler == nil {
+		t.Fatal("expected handler to be registered")
+	}
+
+	payload := planningResultPayload{
+		ResultID: "res-123",
+		Plans: []*planPayload{
+			{
+				PlanID:        "plan-1",
+				Goal:          "Test goal",
+				Domain:        "Test domain",
+				EstimatedCost: 10.0,
+			},
+		},
+	}
+	data, _ := json.Marshal(payload)
+	storer.data["storage://cas/plan-ref"] = data
+
+	env := communication.Envelope{
+		ID:         "env-123",
+		Topic:      communication.TopicCandidatePlans,
+		PayloadRef: "storage://cas/plan-ref",
+	}
+
+	err := sub.handler(context.Background(), env)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	pub.mu.Lock()
+	defer pub.mu.Unlock()
+	if len(pub.envelopes) == 0 {
+		t.Fatal("expected decision to be published to workspace")
+	}
+
+	outEnv := pub.envelopes[0]
+	if outEnv.Topic != communication.TopicEvaluatedOptions {
+		t.Errorf("expected output topic %s, got %s", communication.TopicEvaluatedOptions, outEnv.Topic)
 	}
 }
 

@@ -21,9 +21,20 @@ type WorkspacePublisher interface {
 	Publish(ctx context.Context, env communication.Envelope) error
 }
 
+// WorkspaceSubscription manages the lifecycle of an active subscription.
+type WorkspaceSubscription interface {
+	Cancel() error
+}
+
+// WorkspaceSubscriber defines the interface for registering handlers on Workspace topics.
+type WorkspaceSubscriber interface {
+	Subscribe(topic communication.TopicID, subscriberID string, handler func(ctx context.Context, env communication.Envelope) error) (WorkspaceSubscription, error)
+}
+
 // PayloadStorer defines the functional interface required to persist DecisionRecord payloads to CAS storage.
 type PayloadStorer interface {
 	Store(ctx context.Context, data []byte) (string, error)
+	Retrieve(ctx context.Context, key string) ([]byte, error)
 }
 
 // PublishDeliberativeDecision serializes a Deliberative DecisionRecord, stores its payload reference,
@@ -33,6 +44,7 @@ func PublishDeliberativeDecision(
 	rec *DecisionRecord,
 	storer PayloadStorer,
 	publisher WorkspacePublisher,
+	parentRefs ...string,
 ) (communication.Envelope, error) {
 	if rec == nil {
 		return communication.Envelope{}, ErrInvalidDecisionRecord
@@ -62,8 +74,12 @@ func PublishDeliberativeDecision(
 		return communication.Envelope{}, err
 	}
 
+	if len(parentRefs) > 0 && parentRefs[0] != "" {
+		env.ParentRef = parentRefs[0]
+	}
+
 	if err := publisher.Publish(ctx, env); err != nil {
-		return communication.Envelope{}, fmt.Errorf("decision: failed to publish envelope to workspace: %w", err)
+		return communication.Envelope{}, fmt.Errorf("decision: failed to publish decision record to workspace: %w", err)
 	}
 
 	return env, nil

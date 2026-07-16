@@ -2,6 +2,7 @@ package reasoning
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -41,6 +42,7 @@ type Service struct {
 	subTopic communication.TopicID
 	pubTopic communication.TopicID
 	sub      workspace.Subscription
+	storer   PayloadStorer
 
 	started bool
 	closed  bool
@@ -126,11 +128,18 @@ func WithConstitutionGate(gate constitution.ActionGate) ServiceOption {
 	}
 }
 
-// WithTopics configures the workspace subscription and publication channels.
+// WithTopics overrides the default subscription and publication topics.
 func WithTopics(subTopic, pubTopic communication.TopicID) ServiceOption {
 	return func(srv *Service) {
 		srv.subTopic = subTopic
 		srv.pubTopic = pubTopic
+	}
+}
+
+// WithPayloadStorer injects a CAS storage bridge for persisting ReasoningResult payloads.
+func WithPayloadStorer(storer PayloadStorer) ServiceOption {
+	return func(srv *Service) {
+		srv.storer = storer
 	}
 }
 
@@ -554,12 +563,24 @@ func (s *Service) ReasonEnvelope(ctx context.Context, perceptionEnv communicatio
 	)
 
 	if ws != nil && pubTopic.IsValid() {
+		payloadRef := resultEnvID
+		if s.storer != nil {
+			if data, jerr := json.Marshal(result); jerr == nil {
+				if key, serr := s.storer.Store(ctx, data); serr == nil {
+					payloadRef = key
+				}
+			}
+		}
+		parentID := perceptionEnv.ParentRef
+		if parentID == "" {
+			parentID = perceptionEnv.ID
+		}
 		pubEnv := communication.Envelope{
 			ID:              resultEnvID,
 			Source:          s.Name(),
 			Topic:           pubTopic,
-			ParentRef:       perceptionEnv.ID,
-			PayloadRef:      resultEnvID,
+			ParentRef:       parentID,
+			PayloadRef:      payloadRef,
 			PayloadModality: "reasoning-result",
 			RawConfidence:   calPrimary.CalibratedConfidence,
 		}

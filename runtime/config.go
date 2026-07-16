@@ -49,6 +49,7 @@ func DefaultConfiguration() RuntimeConfiguration {
 			"learning":      true,
 			"attention":     true,
 			"executive":     true,
+			"world":         true,
 		},
 	}
 }

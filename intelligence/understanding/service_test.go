@@ -3,6 +3,8 @@ package understanding_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -12,10 +14,22 @@ import (
 	"idun/intelligence/workspace"
 )
 
-// mockWorkspace captures envelopes published to the workspace for test assertions.
+type mockSubscription struct {
+	id      workspace.SubscriptionID
+	topic   communication.TopicID
+	handler workspace.EnvelopeHandler
+}
+
+func (s *mockSubscription) ID() workspace.SubscriptionID       { return s.id }
+func (s *mockSubscription) Topic() communication.TopicID       { return s.topic }
+func (s *mockSubscription) Subscriber() string                 { return "sub" }
+func (s *mockSubscription) Handler() workspace.EnvelopeHandler { return s.handler }
+func (s *mockSubscription) Cancel() error                      { return nil }
+
 type mockWorkspace struct {
-	mu        sync.Mutex
-	published []communication.Envelope
+	mu            sync.Mutex
+	published     []communication.Envelope
+	subscriptions map[communication.TopicID]workspace.EnvelopeHandler
 }
 
 func (m *mockWorkspace) Publish(ctx context.Context, env communication.Envelope, opts ...workspace.PublishOption) error {
@@ -26,7 +40,13 @@ func (m *mockWorkspace) Publish(ctx context.Context, env communication.Envelope,
 }
 
 func (m *mockWorkspace) Subscribe(topic communication.TopicID, subscriberID string, handler workspace.EnvelopeHandler) (workspace.Subscription, error) {
-	return nil, nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.subscriptions == nil {
+		m.subscriptions = make(map[communication.TopicID]workspace.EnvelopeHandler)
+	}
+	m.subscriptions[topic] = handler
+	return &mockSubscription{id: workspace.SubscriptionID("sub-1"), topic: topic, handler: handler}, nil
 }
 
 func (m *mockWorkspace) SubscribeAll(subscriberID string, handler workspace.EnvelopeHandler) ([]workspace.Subscription, error) {
@@ -213,4 +233,103 @@ func TestServiceConcurrentRaceSafety(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+type mockPayloadStorer struct {
+	mu     sync.Mutex
+	stored map[string][]byte
+}
+
+func newMockPayloadStorer() *mockPayloadStorer {
+	return &mockPayloadStorer{stored: make(map[string][]byte)}
+}
+
+func (m *mockPayloadStorer) Store(_ context.Context, data []byte) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := fmt.Sprintf("cas-key-%d", len(m.stored)+1)
+	m.stored[key] = data
+	return key, nil
+}
+
+func (m *mockPayloadStorer) Retrieve(_ context.Context, key string) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	data, ok := m.stored[key]
+	if !ok {
+		return nil, errors.New("key not found")
+	}
+	return data, nil
+}
+
+func TestService_PerceptionBridge_Integration(t *testing.T) {
+	ws := &mockWorkspace{}
+	storer := newMockPayloadStorer()
+	cfg := understanding.WithConfigOptions()
+
+	svc := understanding.NewService(
+		cfg,
+		ws,
+		understanding.WithPayloadStorer(storer),
+	)
+
+	if err := svc.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer svc.Close()
+
+	ws.mu.Lock()
+	handler, ok := ws.subscriptions[communication.TopicPerception]
+	ws.mu.Unlock()
+	if !ok || handler == nil {
+		t.Fatalf("expected Understanding service to subscribe to TopicPerception upon Start")
+	}
+
+	ctx := context.Background()
+	rawText := "weather in Seattle"
+	casKey, err := storer.Store(ctx, []byte(rawText))
+	if err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
+
+	perceptionEnv := communication.Envelope{
+		ID:         "world-interaction-123",
+		Source:     "World.Service",
+		Topic:      communication.TopicPerception,
+		PayloadRef: casKey,
+	}
+
+	if err := handler(ctx, perceptionEnv); err != nil {
+		t.Fatalf("handlePerceptionEnvelope failed: %v", err)
+	}
+
+	ws.mu.Lock()
+	pubCount := len(ws.published)
+	pubList := append([]communication.Envelope(nil), ws.published...)
+	ws.mu.Unlock()
+
+	if pubCount != 1 {
+		t.Fatalf("expected 1 published envelope to TopicUserIntent, got %d", pubCount)
+	}
+	pubEnv := pubList[0]
+	if pubEnv.Topic != communication.TopicUserIntent {
+		t.Fatalf("expected topic %q, got %q", communication.TopicUserIntent, pubEnv.Topic)
+	}
+	if pubEnv.ParentRef != "world-interaction-123" {
+		t.Fatalf("expected ParentRef 'world-interaction-123', got %q", pubEnv.ParentRef)
+	}
+
+	// Verify structured output frame stored in CAS via PayloadStorer
+	frameData, err := storer.Retrieve(ctx, pubEnv.PayloadRef)
+	if err != nil {
+		t.Fatalf("expected published PayloadRef %q to be in CAS: %v", pubEnv.PayloadRef, err)
+	}
+
+	var frame understanding.SemanticFrame
+	if err := json.Unmarshal(frameData, &frame); err != nil {
+		t.Fatalf("unmarshal stored SemanticFrame failed: %v", err)
+	}
+	if frame.PrimaryHypothesis.Intent != "query_weather" {
+		t.Fatalf("expected intent query_weather, got %s", frame.PrimaryHypothesis.Intent)
+	}
 }

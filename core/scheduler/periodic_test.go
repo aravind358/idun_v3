@@ -38,7 +38,7 @@ func TestSchedulePeriodic_SuccessAndRetry(t *testing.T) {
 	}
 
 	// Now make the dispatcher return an error to test retry backoff
-	disp.err = errors.New("temporary failure")
+	disp.setErr(errors.New("temporary failure"))
 
 	// Wait for second dispatch attempt (and retry)
 	select {
