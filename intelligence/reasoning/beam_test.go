@@ -41,3 +41,58 @@ func TestBeamSelectionSpecialist_EmptyList(t *testing.T) {
 		t.Errorf("expected ErrEmptyHypotheses, got %v", err)
 	}
 }
+
+func TestBeamSelectionSpecialist_WithFusedHypotheses(t *testing.T) {
+	specialist := NewBeamSelectionSpecialist()
+
+	goal1 := &SemanticGoal{
+		Kind:   GoalKindCommunicative,
+		Intent: "greet_user",
+		Target: "user",
+		DesiredState: map[string]string{
+			"acknowledged": "true",
+		},
+	}
+	goal2 := &SemanticGoal{
+		Kind:   GoalKindCommunicative,
+		Intent: "help_user",
+		Target: "user",
+		DesiredState: map[string]string{
+			"assisted": "true",
+		},
+	}
+
+	// Suppose these hypotheses have already been fused by Stage S4
+	hyps := []ReasoningHypothesis{
+		{
+			ID:                  "fused-greet",
+			Type:                HypothesisType("Symbolic"),
+			Conclusion:          `Derived symbolic conclusion for intent "greet_user"`,
+			ReasoningConfidence: 0.92,
+			ProposedGoal:        goal1,
+			SupportingPremises:  []string{"rule_match=dialogue_intent:greet_user", "analogical_case=case-1"},
+		},
+		{
+			ID:                  "fused-help",
+			Type:                HypothesisType("Relational"),
+			Conclusion:          `Relational match for help`,
+			ReasoningConfidence: 0.81,
+			ProposedGoal:        goal2,
+			SupportingPremises:  []string{"graph_edge=help"},
+		},
+	}
+
+	primary, beam, err := specialist.SelectBeam(hyps, 3, 0.25)
+	if err != nil {
+		t.Fatalf("SelectBeam failed: %v", err)
+	}
+	if primary.ID != "fused-greet" {
+		t.Errorf("expected primary to be highest confidence fused candidate fused-greet, got %s", primary.ID)
+	}
+	if primary.ProposedGoal.Fingerprint() != goal1.Fingerprint() {
+		t.Errorf("expected primary to retain ProposedGoal fingerprint %q", goal1.Fingerprint())
+	}
+	if len(beam) != 1 || beam[0].ID != "fused-help" {
+		t.Errorf("expected runner-up in beam to be fused-help, got %v", beam)
+	}
+}

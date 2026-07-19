@@ -74,6 +74,8 @@ func NewDefaultPlanFingerprinter() *DefaultPlanFingerprinter {
 type structuralPayload struct {
 	SchemaVersion     string                `json:"schema_version"`
 	Domain            string                `json:"domain"`
+	PlannerID         string                `json:"planner_id,omitempty"`
+	PlannerType       string                `json:"planner_type,omitempty"`
 	Goal              string                `json:"goal"`
 	Subgoals          []Subgoal             `json:"subgoals"`
 	Dependencies      []DependencyEdge      `json:"dependencies"`
@@ -118,6 +120,8 @@ func (f *DefaultPlanFingerprinter) ComputeFingerprint(plan *Plan) (string, error
 	payload := structuralPayload{
 		SchemaVersion:     plan.SchemaVersion,
 		Domain:            plan.Domain,
+		PlannerID:         plan.PlannerID,
+		PlannerType:       plan.PlannerType,
 		Goal:              plan.Goal,
 		Subgoals:          subgoals,
 		Dependencies:      dependencies,

@@ -23,14 +23,14 @@ type PlanningSpecialistRegistry interface {
 	GetSpecialistsForDomain(domain string, profile *PlanningPolicyProfile) []PlanningSpecialist
 
 	// ExecuteSpecialists runs applicable specialists concurrently, isolating panics and timeouts,
-	// and merges their contributed steps, subgoals, and dependency edges.
+	// returning isolated contributions per specialist and merged step logs.
 	ExecuteSpecialists(
 		ctx context.Context,
 		req *PlanningRequest,
 		graph *DependencyGraphSnapshot,
 		profile *PlanningPolicyProfile,
 		cache *ReflexivePlanningCache,
-	) ([]PlanningStepLog, []Subgoal, []DependencyEdge, error)
+	) ([]SpecialistContribution, []PlanningStepLog, error)
 }
 
 // DefaultSpecialistRegistry implements thread-safe PlanningSpecialistRegistry.
@@ -121,14 +121,14 @@ func (r *DefaultSpecialistRegistry) ExecuteSpecialists(
 	graph *DependencyGraphSnapshot,
 	profile *PlanningPolicyProfile,
 	cache *ReflexivePlanningCache,
-) ([]PlanningStepLog, []Subgoal, []DependencyEdge, error) {
+) ([]SpecialistContribution, []PlanningStepLog, error) {
 	if req == nil {
-		return nil, nil, nil, errors.New("cannot execute specialists with nil request")
+		return nil, nil, errors.New("cannot execute specialists with nil request")
 	}
 
 	specialists := r.GetSpecialistsForDomain(req.Domain, profile)
 	if len(specialists) == 0 {
-		return nil, nil, nil, nil
+		return nil, nil, nil
 	}
 
 	var wg sync.WaitGroup
@@ -233,8 +233,7 @@ func (r *DefaultSpecialistRegistry) ExecuteSpecialists(
 	close(resultCh)
 
 	var allSteps []PlanningStepLog
-	var allSubgoals []Subgoal
-	var allEdges []DependencyEdge
+	var allContribs []SpecialistContribution
 	var firstErr error
 
 	for res := range resultCh {
@@ -244,8 +243,13 @@ func (r *DefaultSpecialistRegistry) ExecuteSpecialists(
 		if res.err != nil && firstErr == nil && !errors.Is(res.err, context.Canceled) {
 			firstErr = res.err
 		}
-		allSubgoals = append(allSubgoals, res.subgoals...)
-		allEdges = append(allEdges, res.edges...)
+		allContribs = append(allContribs, SpecialistContribution{
+			SpecialistName: res.specialist,
+			StepLog:        res.stepLog,
+			Subgoals:       res.subgoals,
+			Edges:          res.edges,
+			Error:          res.err,
+		})
 	}
 
 	// Sort step logs by StepIndex for deterministic ordering
@@ -253,5 +257,20 @@ func (r *DefaultSpecialistRegistry) ExecuteSpecialists(
 		return allSteps[i].StepIndex < allSteps[j].StepIndex
 	})
 
-	return allSteps, allSubgoals, allEdges, firstErr
+	// Sort contributions deterministically by StepLog.StepIndex (or SpecialistName as fallback)
+	sort.Slice(allContribs, func(i, j int) bool {
+		idxI, idxJ := 999999, 999999
+		if allContribs[i].StepLog != nil {
+			idxI = allContribs[i].StepLog.StepIndex
+		}
+		if allContribs[j].StepLog != nil {
+			idxJ = allContribs[j].StepLog.StepIndex
+		}
+		if idxI == idxJ {
+			return allContribs[i].SpecialistName < allContribs[j].SpecialistName
+		}
+		return idxI < idxJ
+	})
+
+	return allContribs, allSteps, firstErr
 }

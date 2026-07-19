@@ -90,3 +90,70 @@ func TestRelationalGraphSpecialist_EvaluateAndDestroy(t *testing.T) {
 		}
 	}
 }
+
+func TestRelationalGraphSpecialist_EvaluateWithSemanticGoalNode(t *testing.T) {
+	specialist := NewRelationalGraphSpecialist()
+	env := communication.Envelope{ID: "env-graph-goal"}
+	goalJSON := []byte(`{"kind":"INFORMATION_RETRIEVAL","intent":"query_status","target":"db","desired_state":{"online":"true"}}`)
+	memRecords := []memory.Record{
+		{ID: "node-goal", Type: "semantic_goal", Payload: goalJSON},
+	}
+	spec := StrategySpec{
+		MaxGraphNodes: 10,
+		MaxGraphEdges: 10,
+		MaxGraphDepth: 2,
+	}
+
+	hyps, err := specialist.Evaluate(context.Background(), env, nil, memRecords, spec)
+	if err != nil {
+		t.Fatalf("Evaluate failed: %v", err)
+	}
+	if len(hyps) == 0 {
+		t.Fatalf("expected hypotheses from graph traversal")
+	}
+	hyp := hyps[0]
+	if hyp.ProposedGoal == nil {
+		t.Fatalf("expected ProposedGoal extracted from semantic_goal node")
+	}
+	if err := hyp.ProposedGoal.Validate(); err != nil {
+		t.Fatalf("ProposedGoal failed validation: %v", err)
+	}
+	if hyp.ProposedGoal.Kind != GoalKindInformationRetrieval || hyp.ProposedGoal.Intent != "query_status" {
+		t.Errorf("unexpected ProposedGoal: %+v", hyp.ProposedGoal)
+	}
+}
+
+func TestRelationalGraphSpecialist_EvaluateWithoutSemanticGoalNode(t *testing.T) {
+	specialist := NewRelationalGraphSpecialist()
+	env := communication.Envelope{ID: "env-graph-opaque"}
+	memRecords := []memory.Record{
+		{ID: "opaque-fact", Type: "fact"},
+	}
+	spec := StrategySpec{
+		MaxGraphNodes: 10,
+		MaxGraphEdges: 10,
+		MaxGraphDepth: 2,
+	}
+
+	hyps, err := specialist.Evaluate(context.Background(), env, nil, memRecords, spec)
+	if err != nil {
+		t.Fatalf("Evaluate failed: %v", err)
+	}
+	if len(hyps) == 0 {
+		t.Fatalf("expected hypotheses from graph traversal")
+	}
+	hyp := hyps[0]
+	if hyp.ProposedGoal != nil {
+		t.Errorf("expected nil ProposedGoal when only opaque nodes present, got %+v", hyp.ProposedGoal)
+	}
+	hasMissingSemantics := false
+	for _, p := range hyp.SupportingPremises {
+		if len(p) > len("missing_goal_semantics=") && p[:len("missing_goal_semantics=")] == "missing_goal_semantics=" {
+			hasMissingSemantics = true
+			break
+		}
+	}
+	if !hasMissingSemantics {
+		t.Errorf("expected SupportingPremises to record missing_goal_semantics, got %v", hyp.SupportingPremises)
+	}
+}

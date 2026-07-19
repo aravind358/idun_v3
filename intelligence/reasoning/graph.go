@@ -2,6 +2,7 @@ package reasoning
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -301,7 +302,11 @@ func (s *RelationalGraphSpecialist) Evaluate(
 
 	for _, rec := range memContext {
 		nodeID := fmt.Sprintf("mem:%s", rec.ID)
-		_ = graph.AddNode(nodeID, rec.Type, rec.ID)
+		label := rec.ID
+		if (rec.Type == "semantic_goal" || rec.Type == "goal" || rec.Type == "consequent" || rec.Type == "target_state") && len(rec.Payload) > 0 {
+			label = string(rec.Payload)
+		}
+		_ = graph.AddNode(nodeID, rec.Type, label)
 		_ = graph.AddEdge(rootID, nodeID, "context_link", 0.85)
 	}
 
@@ -318,14 +323,35 @@ func (s *RelationalGraphSpecialist) Evaluate(
 		endNode := path.Nodes[len(path.Nodes)-1]
 		conclusion := fmt.Sprintf("Relational path discovered from %s to %s via %d hops", rootID, endNode.ID, len(path.Edges))
 
+		var proposedGoal *SemanticGoal
+		var missingInfoReason string
+		for _, node := range path.Nodes {
+			if node.NodeType == "semantic_goal" || node.NodeType == "consequent" || node.NodeType == "goal" || node.NodeType == "target_state" {
+				var goal SemanticGoal
+				if err := json.Unmarshal([]byte(node.Label), &goal); err == nil && goal.Validate() == nil {
+					proposedGoal = goal.Clone()
+					break
+				}
+			}
+		}
+		if proposedGoal == nil {
+			missingInfoReason = "Relational working graph path contains only opaque node IDs and relationships without structured GoalKind/Intent/Target/DesiredState; insufficient semantic information to derive ProposedGoal without fabrication"
+		}
+
+		premises := []string{fmt.Sprintf("path_hops=%d", len(path.Edges))}
+		if missingInfoReason != "" {
+			premises = append(premises, fmt.Sprintf("missing_goal_semantics=%s", missingInfoReason))
+		}
+
 		hyps = append(hyps, ReasoningHypothesis{
 			ID:                  fmt.Sprintf("s2-hyp-%s-%d", perceptionEnv.ID, i),
 			Type:                HypothesisRelation,
 			Conclusion:          conclusion,
+			ProposedGoal:        proposedGoal,
 			ReasoningConfidence: path.Weight,
 			ContributingStages:  []StageIdentifier{StageS2RelationalGraph},
-			SupportingPremises:   []string{fmt.Sprintf("path_hops=%d", len(path.Edges))},
-			EvidenceTrace:        "Evaluated via S2 Relational Graph multi-hop traversal",
+			SupportingPremises:  premises,
+			EvidenceTrace:       "Evaluated via S2 Relational Graph multi-hop traversal",
 		})
 	}
 

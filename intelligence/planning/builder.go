@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"idun/intelligence/reasoning"
 )
 
 // ============================================================================
@@ -44,6 +46,15 @@ func (b *PlanningRequestBuilder) WithGoal(goal string) *PlanningRequestBuilder {
 		return b
 	}
 	b.req.Goal = goal
+	return b
+}
+
+// WithResolvedGoal sets the optional structured SemanticGoal from Reasoning.
+func (b *PlanningRequestBuilder) WithResolvedGoal(rg *reasoning.SemanticGoal) *PlanningRequestBuilder {
+	if b.err != nil {
+		return b
+	}
+	b.req.ResolvedGoal = rg
 	return b
 }
 
@@ -162,6 +173,26 @@ func (b *PlanBuilder) WithGoalAndDomain(goal, domain, sourceTier string) *PlanBu
 		b.plan.Domain = domain
 	}
 	b.plan.SourceTier = sourceTier
+	return b
+}
+
+// WithPlannerIdentity sets the originating planner ID and type on the Plan.
+func (b *PlanBuilder) WithPlannerIdentity(plannerID, plannerType string) *PlanBuilder {
+	if b.err != nil {
+		return b
+	}
+	b.plan.PlannerID = plannerID
+	b.plan.PlannerType = plannerType
+	return b
+}
+
+
+// WithResolvedGoal accepts the optional structured SemanticGoal from Reasoning without taking ownership.
+// Architectural Invariant: Plan is the lean operational payload and does not embed SemanticGoal.
+func (b *PlanBuilder) WithResolvedGoal(rg *reasoning.SemanticGoal) *PlanBuilder {
+	if b.err != nil {
+		return b
+	}
 	return b
 }
 

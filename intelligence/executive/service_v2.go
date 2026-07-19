@@ -219,6 +219,8 @@ func (s *ServiceV2) handleEvaluatedOptions(ctx context.Context, env communicatio
 		return fmt.Errorf("executive: TopicEvaluatedOptions envelope failed validation: %w", err)
 	}
 
+	devLog("Executive", "Received TopicEvaluatedOptions")
+
 	parentID := env.ParentRef
 	if parentID == "" {
 		parentID = env.ID
@@ -240,6 +242,8 @@ func (s *ServiceV2) handleEvaluatedOptions(ctx context.Context, env communicatio
 		return fmt.Errorf("executive: failed to build action execution envelope: %w", err)
 	}
 
+	devLog("Executive", "Action approved")
+
 	// Step 3: Submit bid to TopicActionExecution pending queue (budget enforcement + Constitution).
 	if err := s.SubmitBid(ctx, actionEnv, HorizonDeliberative); err != nil {
 		return fmt.Errorf("executive: failed to submit action bid: %w", err)
@@ -251,6 +255,8 @@ func (s *ServiceV2) handleEvaluatedOptions(ctx context.Context, env communicatio
 	if err != nil {
 		return fmt.Errorf("executive: arbitration failed for TopicActionExecution: %w", err)
 	}
+
+	devLog("Executive", "Published TopicActionExecution")
 
 	return nil
 }

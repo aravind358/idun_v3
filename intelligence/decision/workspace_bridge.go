@@ -2,6 +2,7 @@ package decision
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"idun/intelligence/communication"
@@ -37,11 +38,21 @@ type PayloadStorer interface {
 	Retrieve(ctx context.Context, key string) ([]byte, error)
 }
 
-// PublishDeliberativeDecision serializes a Deliberative DecisionRecord, stores its payload reference,
-// packages it into a canonical communication.Envelope, and publishes it to TopicEvaluatedOptions.
+// executionResponsePayload defines the JSON payload contract expected by Language Realization.
+type executionResponsePayload struct {
+	ResponseID       string `json:"response_id"`
+	ParentRef        string `json:"parent_ref"`
+	FinalizedContent string `json:"finalized_content"`
+	Tone             string `json:"tone"`
+	Language         string `json:"language"`
+}
+
+// PublishDeliberativeDecision serializes a Deliberative DecisionRecord (or ExecutionResponse if selectedDesc is provided),
+// stores its payload reference, packages it into a canonical communication.Envelope, and publishes it to TopicEvaluatedOptions.
 func PublishDeliberativeDecision(
 	ctx context.Context,
 	rec *DecisionRecord,
+	selectedDesc string,
 	storer PayloadStorer,
 	publisher WorkspacePublisher,
 	parentRefs ...string,
@@ -59,9 +70,29 @@ func PublishDeliberativeDecision(
 		return communication.Envelope{}, fmt.Errorf("decision: storer and publisher cannot be nil")
 	}
 
-	data, err := MarshalDecisionRecord(rec)
-	if err != nil {
-		return communication.Envelope{}, err
+	var data []byte
+	var err error
+	if selectedDesc != "" {
+		parentID := ""
+		if len(parentRefs) > 0 && parentRefs[0] != "" {
+			parentID = parentRefs[0]
+		}
+		execResp := executionResponsePayload{
+			ResponseID:       "resp-" + rec.DecisionID,
+			ParentRef:        parentID,
+			FinalizedContent: selectedDesc,
+			Tone:             "conversational",
+			Language:         "en-US",
+		}
+		data, err = json.Marshal(execResp)
+		if err != nil {
+			return communication.Envelope{}, fmt.Errorf("decision: failed to marshal execution response: %w", err)
+		}
+	} else {
+		data, err = MarshalDecisionRecord(rec)
+		if err != nil {
+			return communication.Envelope{}, err
+		}
 	}
 
 	payloadRef, err := storer.Store(ctx, data)

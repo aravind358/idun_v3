@@ -3,6 +3,7 @@ package understanding
 import (
 	"strings"
 	"sync"
+	"unicode"
 )
 
 // GrammarRule defines a single deterministic pattern or grammar matcher.
@@ -32,7 +33,11 @@ func NewExactKeywordRule(id, phrase, intent string, conf float64) *ExactKeywordR
 func (r *ExactKeywordRule) ID() string { return r.id }
 
 func (r *ExactKeywordRule) Match(norm NormalizedText) (string, []Slot, float64, bool) {
-	if norm.Cleaned == r.phrase {
+	cleanNoPunct := strings.TrimFunc(norm.Cleaned, func(ru rune) bool {
+		return unicode.IsPunct(ru) && ru != '_' && ru != '-' && ru != ':' && ru != '/'
+	})
+	cleanNoPunct = strings.TrimSpace(cleanNoPunct)
+	if norm.Cleaned == r.phrase || cleanNoPunct == r.phrase {
 		return r.intent, nil, r.conf, true
 	}
 	return "", nil, 0.0, false
@@ -74,6 +79,22 @@ func (r *PrefixSlotRule) Match(norm NormalizedText) (string, []Slot, float64, bo
 			return r.intent, []Slot{slot}, r.conf, true
 		}
 	}
+	cleanNoPunct := strings.TrimFunc(norm.Cleaned, func(ru rune) bool {
+		return unicode.IsPunct(ru) && ru != '_' && ru != '-' && ru != ':' && ru != '/'
+	})
+	cleanNoPunct = strings.TrimSpace(cleanNoPunct)
+	if strings.HasPrefix(cleanNoPunct, r.prefix) {
+		val := strings.TrimSpace(strings.TrimPrefix(cleanNoPunct, r.prefix))
+		if val != "" {
+			slot := Slot{
+				Name:        r.slotName,
+				Value:       val,
+				GroundingID: "slot-" + r.slotName,
+				Confidence:  r.conf,
+			}
+			return r.intent, []Slot{slot}, r.conf, true
+		}
+	}
 	return "", nil, 0.0, false
 }
 
@@ -96,6 +117,12 @@ func NewDefaultGrammarSpecialist() *DefaultGrammarSpecialist {
 	_ = g.RegisterRule(NewExactKeywordRule("rule.cancel", "cancel", "cancel_action", 0.99))
 	_ = g.RegisterRule(NewPrefixSlotRule("rule.alarm", "set alarm for", "set_alarm", "time", 0.96))
 	_ = g.RegisterRule(NewPrefixSlotRule("rule.weather", "weather in", "query_weather", "city", 0.95))
+	_ = g.RegisterRule(NewExactKeywordRule("rule.hello", "hello", "greet_user", 0.98))
+	_ = g.RegisterRule(NewExactKeywordRule("rule.hello_idun", "hello idun", "greet_user", 0.98))
+	_ = g.RegisterRule(NewExactKeywordRule("rule.hi", "hi", "greet_user", 0.98))
+	_ = g.RegisterRule(NewExactKeywordRule("rule.who", "who are you", "query_identity", 0.98))
+	_ = g.RegisterRule(NewExactKeywordRule("rule.how", "how are you", "query_wellbeing", 0.98))
+	_ = g.RegisterRule(NewExactKeywordRule("rule.goodbye", "goodbye", "farewell_user", 0.98))
 	return g
 }
 

@@ -21,6 +21,8 @@ import (
 	"idun/intelligence/constitution"
 	"idun/intelligence/decision"
 	"idun/intelligence/executive"
+	"idun/intelligence/infrastructure/inference"
+	"idun/intelligence/infrastructure/registry"
 	"idun/intelligence/learning"
 	"idun/intelligence/planning"
 	"idun/intelligence/reasoning"
@@ -28,6 +30,7 @@ import (
 	"idun/intelligence/understanding"
 	"idun/intelligence/workspace"
 	"idun/kernel"
+	"idun/presentation/realization"
 	"idun/world"
 	worldtext "idun/world/adapters/text"
 )
@@ -77,6 +80,18 @@ func (a *executiveWorkspaceSubAdapter) Subscribe(topic communication.TopicID, su
 	return a.ws.Subscribe(topic, subscriberID, handler)
 }
 
+type realizationWorkspaceSubAdapter struct {
+	ws *workspace.Engine
+}
+
+func (a *realizationWorkspaceSubAdapter) Subscribe(topic communication.TopicID, subscriberID string, handler func(ctx context.Context, env communication.Envelope) error) (realization.WorkspaceSubscription, error) {
+	return a.ws.Subscribe(topic, subscriberID, handler)
+}
+
+func (a *realizationWorkspaceSubAdapter) Publish(ctx context.Context, env communication.Envelope) error {
+	return a.ws.Publish(ctx, env)
+}
+
 type payloadStorerAdapter struct {
 	store *storage.Storage
 }
@@ -94,20 +109,32 @@ func (a *payloadStorerAdapter) Retrieve(ctx context.Context, key string) ([]byte
 	return a.store.Read(key)
 }
 
+func (a *payloadStorerAdapter) Delete(key string) error {
+	return a.store.Delete(key)
+}
+
+func (a *payloadStorerAdapter) Exists(key string) (bool, error) {
+	return a.store.Exists(key)
+}
+
+func (a *payloadStorerAdapter) List(prefix string) ([]string, error) {
+	return a.store.List(prefix)
+}
+
 // RuntimeHost is the master orchestrator responsible for constructing, wiring,
 // registering, booting, and stopping all Layer 1 cognitive and foundational subsystems.
 type RuntimeHost struct {
-	mu            sync.RWMutex
-	cfg           RuntimeConfiguration
-	status        RuntimeStatus
-	kernel        *kernel.Kernel
-	manifest      *RuntimeManifest
-	report        *RuntimeBootReport
-	subs          []workspace.Subscription
-	wrappers      map[string]*ComponentWrapper
-	built         bool
-	wired         bool
-	registered    bool
+	mu         sync.RWMutex
+	cfg        RuntimeConfiguration
+	status     RuntimeStatus
+	kernel     *kernel.Kernel
+	manifest   *RuntimeManifest
+	report     *RuntimeBootReport
+	subs       []workspace.Subscription
+	wrappers   map[string]*ComponentWrapper
+	built      bool
+	wired      bool
+	registered bool
 
 	// Core instances
 	loggerSvc    logger.Writer
@@ -134,10 +161,16 @@ type RuntimeHost struct {
 	reflectSvc   *reflection.Service
 	learningSvc  *learning.Service
 
+	// Shared infrastructure & Presentation instances
+	modelRegSvc    *registry.Service
+	inferenceSvc   *inference.Service
+	realizationSvc *realization.Service
+
 	// World boundary subsystem
 	worldSvc  *world.Service
 	inReader  io.Reader
 	outWriter io.Writer
+	doneCh    chan struct{}
 }
 
 type HostOption func(*RuntimeHost)
@@ -150,6 +183,18 @@ func WithIOReaders(in io.Reader, out io.Writer) HostOption {
 	}
 }
 
+// WithRealizationModel overrides the Ollama model used by the local-realizer backend.
+// Use this in tests or specialized deployments where a specific model is known to be installed.
+//
+//	Example: WithRealizationModel("llama3.1:8b")
+func WithRealizationModel(model string) HostOption {
+	return func(h *RuntimeHost) {
+		if model != "" {
+			h.cfg.DefaultRealizationModel = model
+		}
+	}
+}
+
 // NewHost initializes a new RuntimeHost in STOPPED state.
 func NewHost(cfg RuntimeConfiguration, opts ...HostOption) (*RuntimeHost, error) {
 	if err := cfg.Validate(); err != nil {
@@ -159,6 +204,7 @@ func NewHost(cfg RuntimeConfiguration, opts ...HostOption) (*RuntimeHost, error)
 		cfg:      cfg,
 		status:   StatusStopped,
 		wrappers: make(map[string]*ComponentWrapper),
+		doneCh:   make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -340,6 +386,41 @@ func (h *RuntimeHost) Build() error {
 		h.learningSvc = ls
 	}
 
+	// Shared infrastructure & Presentation initialization
+	h.modelRegSvc = registry.NewService()
+	h.inferenceSvc = inference.NewService(
+		inference.WithResolver(h.modelRegSvc),
+		inference.WithStorage(h.storageSvc),
+		inference.WithLogger(h.loggerSvc),
+	)
+	realizationModel := h.cfg.DefaultRealizationModel
+	if realizationModel == "" {
+		realizationModel = "qwen2.5:1.5b"
+	}
+	_ = h.modelRegSvc.Register(context.Background(), "local-realizer", registry.BackendDescriptor{
+		ID:             "ollama-local-01",
+		DriverScheme:   "ollama",
+		Endpoint:       "http://localhost:11434",
+		Version:        "1.0",
+		MaxConcurrency: 4,
+		DriverConfig: map[string]string{
+			"model": realizationModel,
+		},
+	})
+
+	if h.isSubsystemEnabled("realization") {
+		rlzSvc, err := realization.NewServiceBuilder().
+			WithWorkspace(&realizationWorkspaceSubAdapter{ws: h.workspaceSvc}).
+			WithInference(h.inferenceSvc).
+			WithStorage(&payloadStorerAdapter{store: h.storageSvc}).
+			WithConfig(realization.DefaultConfig()).
+			Build()
+		if err != nil {
+			return fmt.Errorf("failed to construct realization service: %w", err)
+		}
+		h.realizationSvc = rlzSvc
+	}
+
 	// World boundary subsystem — registered at PhaseBackground (after all cognitive subsystems).
 	// Uses os.Stdin and os.Stdout for Phase 1 text I/O. Future adapters inject alternative readers/writers.
 	if h.isSubsystemEnabled("world") {
@@ -369,6 +450,10 @@ func (h *RuntimeHost) Build() error {
 			return fmt.Errorf("failed to construct World service: %w", worldErr)
 		}
 		h.worldSvc = worldSvc
+	}
+
+	if h.realizationSvc != nil && h.worldSvc != nil {
+		h.worldSvc.SetWaitForRealization(true)
 	}
 
 	h.built = true
@@ -453,6 +538,12 @@ func (h *RuntimeHost) Register() error {
 	registerWrap("Foundation.Permission", kernel.PhaseInfrastructure, h.permissionSvc)
 	registerWrap("Foundation.Constitution", kernel.PhaseInfrastructure, h.constGate)
 	registerWrap("Foundation.Calibration", kernel.PhaseInfrastructure, h.calibSvc)
+	if h.modelRegSvc != nil {
+		registerWrap("Infrastructure.Registry", kernel.PhaseInfrastructure, h.modelRegSvc)
+	}
+	if h.inferenceSvc != nil {
+		registerWrap("Infrastructure.Inference", kernel.PhaseInfrastructure, h.inferenceSvc)
+	}
 
 	// Phase 3: Workspace
 	registerWrap("Intelligence.Workspace", kernel.PhaseWorkspace, h.workspaceSvc)
@@ -481,6 +572,9 @@ func (h *RuntimeHost) Register() error {
 	}
 	if h.learningSvc != nil {
 		registerWrap("Intelligence.Learning", kernel.PhaseBackground, h.learningSvc)
+	}
+	if h.realizationSvc != nil {
+		registerWrap("Presentation.LanguageRealization", kernel.PhaseBackground, h.realizationSvc)
 	}
 	if h.worldSvc != nil {
 		registerWrap("World.Service", kernel.PhaseBackground, h.worldSvc)
@@ -557,6 +651,9 @@ func (h *RuntimeHost) Start(ctx context.Context) error {
 	if !h.isSubsystemEnabled("world") {
 		skipped = append(skipped, "World.Service")
 	}
+	if !h.isSubsystemEnabled("realization") {
+		skipped = append(skipped, "Presentation.LanguageRealization")
+	}
 
 	h.manifest = GenerateManifest(h.cfg.RuntimeVersion, subsysVersions, policyHashes, capHashes)
 	h.report = &RuntimeBootReport{
@@ -569,11 +666,24 @@ func (h *RuntimeHost) Start(ctx context.Context) error {
 	}
 	h.mu.Unlock()
 
+	devLog("Runtime", "RuntimeHost started.")
+
 	if h.loggerSvc != nil {
 		h.loggerSvc.Info("runtime: boot sequence completed successfully",
 			logger.Field{Key: "duration_ms", Value: fmt.Sprintf("%d", h.report.BootDuration.Milliseconds())},
 			logger.Field{Key: "manifest_hash", Value: h.manifest.ManifestFingerprint},
 		)
+	}
+
+	if h.worldSvc != nil {
+		worldDone := h.worldSvc.Done()
+		go func() {
+			select {
+			case <-worldDone:
+				_ = h.Stop()
+			case <-h.doneCh:
+			}
+		}()
 	}
 
 	return nil
@@ -621,10 +731,24 @@ func (h *RuntimeHost) Stop() error {
 	h.mu.Lock()
 	h.status = StatusStopped
 	h.kernel = nil
+	if h.doneCh != nil {
+		select {
+		case <-h.doneCh:
+		default:
+			close(h.doneCh)
+		}
+	}
 	h.mu.Unlock()
 
 	if h.loggerSvc != nil {
 		h.loggerSvc.Info("runtime: host stopped cleanly")
 	}
 	return nil
+}
+
+// Done returns a read-only channel that is closed when the RuntimeHost stops.
+func (h *RuntimeHost) Done() <-chan struct{} {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.doneCh
 }

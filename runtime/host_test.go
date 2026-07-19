@@ -3,12 +3,25 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+// testRealizationModel returns the Ollama model to use in integration tests.
+// It respects the IDUN_REALIZATION_MODEL env var so CI can override the model
+// without code changes. Falls back to "llama3.1:8b" which is the model known
+// to be installed locally.
+func testRealizationModel() string {
+	if m := os.Getenv("IDUN_REALIZATION_MODEL"); m != "" {
+		return m
+	}
+	return "llama3.1:8b"
+}
 
 func TestRuntimeHost_Lifecycle(t *testing.T) {
 	tempDir := filepath.Join(os.TempDir(), "idun_runtime_test_lifecycle")
@@ -183,6 +196,29 @@ func TestRuntimeHost_ManifestDeterminism(t *testing.T) {
 	}
 }
 
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (n int, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
+}
+
+func (s *syncBuffer) Len() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Len()
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.String()
+}
+
 func TestLayer1EndToEndRuntimeDemonstration(t *testing.T) {
 	tempDir := filepath.Join(os.TempDir(), "idun_runtime_test_e2e")
 	_ = os.RemoveAll(tempDir)
@@ -193,14 +229,14 @@ func TestLayer1EndToEndRuntimeDemonstration(t *testing.T) {
 	cfg.EnableLogging = false
 
 	input := bytes.NewReader([]byte("Hello IDUN\n"))
-	outBuf := &bytes.Buffer{}
+	outBuf := &syncBuffer{}
 
-	h, err := NewHost(cfg, WithIOReaders(input, outBuf))
+	h, err := NewHost(cfg, WithIOReaders(input, outBuf), WithRealizationModel(testRealizationModel()))
 	if err != nil {
 		t.Fatalf("NewHost failed: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	if err := h.Start(ctx); err != nil {
@@ -208,9 +244,9 @@ func TestLayer1EndToEndRuntimeDemonstration(t *testing.T) {
 	}
 	defer h.Stop()
 
-	// Wait up to 3 seconds for the cognitive pipeline (Understanding -> Reasoning -> Planning -> Decision -> Executive -> World)
+	// Wait up to 180 seconds for the cognitive pipeline (Understanding -> Reasoning -> Planning -> Decision -> Executive -> World)
 	// to process the input and emit the final output response through TextOutputAdapter.
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(180 * time.Second)
 	for time.Now().Before(deadline) {
 		if outBuf.Len() > 0 && strings.TrimSpace(outBuf.String()) != "" {
 			break
@@ -224,4 +260,86 @@ func TestLayer1EndToEndRuntimeDemonstration(t *testing.T) {
 
 	outputStr := outBuf.String()
 	t.Logf("End-to-End Runtime Demonstration Output:\n%s", outputStr)
+}
+
+func TestLayer1ManualInteractionsSuite(t *testing.T) {
+	tempDir := filepath.Join(os.TempDir(), "idun_runtime_test_manual_suite")
+	_ = os.RemoveAll(tempDir)
+	defer os.RemoveAll(tempDir)
+
+	cfg := DefaultConfiguration()
+	cfg.StoragePath = tempDir
+	cfg.EnableLogging = false
+
+	pipeReader, pipeWriter := io.Pipe()
+	outBuf := &syncBuffer{}
+
+	h, err := NewHost(cfg, WithIOReaders(pipeReader, outBuf), WithRealizationModel(testRealizationModel()))
+	if err != nil {
+		t.Fatalf("NewHost failed: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := h.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer h.Stop()
+
+	interactions := []string{
+		"Hello",
+		"Hi",
+		"Who are you?",
+		"How are you?",
+		"Goodbye",
+	}
+
+	for i, prompt := range interactions {
+		expectedCount := i + 1
+		_, err := pipeWriter.Write([]byte(prompt + "\n"))
+		if err != nil {
+			t.Fatalf("Write prompt %q failed: %v", prompt, err)
+		}
+
+		deadline := time.Now().Add(180 * time.Second)
+		for time.Now().Before(deadline) {
+			lines := strings.Split(strings.TrimSpace(outBuf.String()), "\n")
+			var validLines int
+			for _, l := range lines {
+				if strings.TrimSpace(l) != "" {
+					validLines++
+				}
+			}
+			if validLines >= expectedCount {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+
+		lines := strings.Split(strings.TrimSpace(outBuf.String()), "\n")
+		var validLines []string
+		for _, l := range lines {
+			if strings.TrimSpace(l) != "" {
+				validLines = append(validLines, strings.TrimSpace(l))
+			}
+		}
+		if len(validLines) < expectedCount {
+			t.Fatalf("interaction %d (%q) failed: expected %d responses, got %d:\n%v", i+1, prompt, expectedCount, len(validLines), validLines)
+		}
+		t.Logf("Interaction %d (%q) -> Response: %s", i+1, prompt, validLines[i])
+	}
+
+	// Verify "exit" cleanly shuts down through World loop.
+	// Allow up to 15 seconds: the LLM inference for the final interaction may still be
+	// in-flight when "exit" arrives. Shutdown cancels the context (near-instant), but
+	// the HTTP stack needs a moment to propagate the cancellation before the goroutine
+	// fully unwinds and h.doneCh is closed.
+	_, _ = pipeWriter.Write([]byte("exit\n"))
+	select {
+	case <-h.Done():
+		t.Log("Clean shutdown via 'exit' confirmed.")
+	case <-time.After(15 * time.Second):
+		t.Fatal("expected h.Done() to close when 'exit' was typed")
+	}
 }

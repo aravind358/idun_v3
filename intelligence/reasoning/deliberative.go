@@ -2,7 +2,9 @@ package reasoning
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"idun/intelligence/communication"
 	"idun/intelligence/infrastructure/inference"
@@ -36,6 +38,7 @@ func (s *DeliberativeSpecialist) EvaluateDeliberative(
 	perceptionEnv communication.Envelope,
 	currentConf float64,
 	escalationThreshold float64,
+	storer ...PayloadStorer,
 ) ([]ReasoningHypothesis, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -64,13 +67,45 @@ func (s *DeliberativeSpecialist) EvaluateDeliberative(
 		return nil, fmt.Errorf("stage S8 deliberative inference failed: %w", err)
 	}
 
+	var rawData []byte
+	if len(storer) > 0 && storer[0] != nil {
+		if retrieved, rErr := storer[0].Retrieve(ctx, res.OutputRef); rErr == nil && len(retrieved) > 0 {
+			rawData = retrieved
+		}
+	}
+	if len(rawData) == 0 && len(res.OutputRef) > 0 {
+		trimmed := strings.TrimSpace(res.OutputRef)
+		if strings.HasPrefix(trimmed, "{") {
+			rawData = []byte(trimmed)
+		}
+	}
+
+	var proposedGoal *SemanticGoal
+	var rejectionStatus string
+	if len(rawData) > 0 {
+		var candidate SemanticGoal
+		if err := json.Unmarshal(rawData, &candidate); err == nil && candidate.Validate() == nil {
+			proposedGoal = candidate.Clone()
+		} else {
+			rejectionStatus = "rejected_malformed_goal"
+		}
+	}
+
+	premises := []string{fmt.Sprintf("inference_ref=%s", res.OutputRef)}
+	if proposedGoal != nil {
+		premises = append(premises, "provenance=LLM_FALLBACK")
+	} else if rejectionStatus != "" {
+		premises = append(premises, fmt.Sprintf("status=%s", rejectionStatus))
+	}
+
 	hyp := ReasoningHypothesis{
 		ID:                  fmt.Sprintf("s8-hyp-%s", perceptionEnv.ID),
 		Type:                HypothesisDeliberative,
 		Conclusion:          fmt.Sprintf("Deliberative structured synthesis for %s via %s", perceptionEnv.ID, res.OutputRef),
+		ProposedGoal:        proposedGoal,
 		ReasoningConfidence: 0.85,
 		ContributingStages:  []StageIdentifier{StageS8DeliberativeLLM},
-		SupportingPremises:  []string{fmt.Sprintf("inference_ref=%s", res.OutputRef)},
+		SupportingPremises:  premises,
 		EvidenceTrace:       fmt.Sprintf("Escalated to Stage S8 Deliberative LLM (model=%s, compute=%d)", res.ModelID, res.ComputeUnits),
 	}
 

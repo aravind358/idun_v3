@@ -93,14 +93,18 @@ func TestSpecialistRegistry_ConcurrentExecutionAndPanicIsolation(t *testing.T) {
 	cache := NewReflexivePlanningCache("ep-panic", "1.0")
 	defer cache.Close()
 
-	steps, subgoals, _, err := reg.ExecuteSpecialists(context.Background(), req, &DependencyGraphSnapshot{}, DefaultPlanningPolicyProfile(), cache)
+	contribs, steps, err := reg.ExecuteSpecialists(context.Background(), req, &DependencyGraphSnapshot{}, DefaultPlanningPolicyProfile(), cache)
 
 	// Verify that panic did NOT crash the process and we got outputs from NormalSpec plus panic error/log
 	if err == nil {
 		t.Fatal("expected error returned from panicking specialist, got nil")
 	}
-	if len(subgoals) != 1 || subgoals[0].SubgoalID != "sg-NormalSpec" {
-		t.Errorf("expected subgoals from NormalSpec despite panic in other specialist, got %+v", subgoals)
+	var totalSubgoals []Subgoal
+	for _, c := range contribs {
+		totalSubgoals = append(totalSubgoals, c.Subgoals...)
+	}
+	if len(totalSubgoals) != 1 || totalSubgoals[0].SubgoalID != "sg-NormalSpec" {
+		t.Errorf("expected subgoals from NormalSpec despite panic in other specialist, got %+v", totalSubgoals)
 	}
 	if len(steps) != 2 {
 		t.Fatalf("expected 2 step logs (1 normal + 1 panic recovered), got %d", len(steps))
@@ -134,7 +138,7 @@ func TestSpecialistRegistry_TimeoutAndCancellation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	steps, _, _, err := reg.ExecuteSpecialists(ctx, req, &DependencyGraphSnapshot{}, DefaultPlanningPolicyProfile(), nil)
+	_, steps, err := reg.ExecuteSpecialists(ctx, req, &DependencyGraphSnapshot{}, DefaultPlanningPolicyProfile(), nil)
 	if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		t.Errorf("expected deadline exceeded error, got: %v / ctx.Err=%v", err, ctx.Err())
 	}

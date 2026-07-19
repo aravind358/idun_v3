@@ -11,6 +11,7 @@ import (
 
 	"idun/intelligence/communication"
 	"idun/intelligence/executive"
+	"idun/intelligence/reasoning"
 )
 
 // DefaultPlanningService implements PlanningService and executive.PlanningAbility.
@@ -141,6 +142,7 @@ type reasoningResultPayload struct {
 	PrimaryHypothesis struct {
 		Conclusion string `json:"conclusion"`
 	} `json:"primary_hypothesis"`
+	ResolvedGoal *reasoning.SemanticGoal `json:"resolved_goal"`
 }
 
 // handleActiveGoal receives active goal envelopes from the Workspace and initiates planning.
@@ -155,6 +157,8 @@ func (s *DefaultPlanningService) handleActiveGoal(ctx context.Context, env commu
 	if env.ID == "" || env.Topic != communication.TopicActiveGoals || env.PayloadRef == "" {
 		return errors.New("planning: invalid active goal envelope")
 	}
+
+	devLog("Planning", "Received TopicActiveGoals")
 
 	if s.storer == nil {
 		return errors.New("planning: payload storer not configured")
@@ -178,6 +182,7 @@ func (s *DefaultPlanningService) handleActiveGoal(ctx context.Context, env commu
 	req := &PlanningRequest{
 		RequestID:          env.ID,
 		Goal:               result.PrimaryHypothesis.Conclusion,
+		ResolvedGoal:       result.ResolvedGoal,
 		Domain:             "General",
 		ContextRef:         env.PayloadRef,
 		TargetDepth:        DepthTactical,
@@ -276,6 +281,7 @@ func (s *DefaultPlanningService) DecomposeGoal(ctx context.Context, goalRef stri
 		if err != nil {
 			return "", err
 		}
+		devLog("Planning", "Published TopicCandidatePlans")
 		return env.PayloadRef, nil
 	}
 
@@ -324,6 +330,19 @@ func (s *DefaultPlanningService) ExecuteTask(
 	}
 
 	return executive.StatusConfident, res.PrimaryPlanID, nil
+}
+
+func resolvePlannerType(specialistName string) string {
+	switch specialistName {
+	case "HTNDecompositionSpecialist", "HTNSpecialist":
+		return "HTN"
+	case "GOAPActionSpecialist", "GOAPSpecialist":
+		return "GOAP"
+	case "MultiAlternativeTreeSearchSpecialist", "TreeSearchSpecialist":
+		return "TreeSearch"
+	default:
+		return specialistName
+	}
 }
 
 // executePlanningEpisode orchestrates the canonical 8-Stage Planning Episode Pipeline.
@@ -375,7 +394,12 @@ func (s *DefaultPlanningService) executePlanningEpisode(
 	graph := &DependencyGraphSnapshot{
 		Nodes: make(map[string]string),
 	}
-	stepLogs, subgoals, edges, specErr := s.registry.ExecuteSpecialists(ctx, req, graph, profile, cache)
+	contribs, stepLogs, specErr := s.registry.ExecuteSpecialists(ctx, req, graph, profile, cache)
+
+	totalSubgoals := 0
+	for _, c := range contribs {
+		totalSubgoals += len(c.Subgoals)
+	}
 
 	// Determine Termination Reason and Status
 	termReason := TerminationGoalFound
@@ -384,7 +408,7 @@ func (s *DefaultPlanningService) executePlanningEpisode(
 
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(specErr, context.DeadlineExceeded) {
 		termReason = TerminationTimeLimit
-		if len(subgoals) > 0 {
+		if totalSubgoals > 0 {
 			planStatus = PlanStatusPartialBudgetExhausted
 			resultStatus = ResultPartialPlans
 		} else {
@@ -399,16 +423,16 @@ func (s *DefaultPlanningService) executePlanningEpisode(
 		termReason = TerminationNoValidPlan
 		planStatus = PlanStatusInfeasible
 		resultStatus = ResultValidationFailed
-	} else if len(subgoals) == 0 {
+	} else if totalSubgoals == 0 {
 		termReason = TerminationNoValidPlan
 		planStatus = PlanStatusInfeasible
 		resultStatus = ResultNoPlans
 	}
 
 	// Stage 4: Assemble Plan estimates and ConfidenceProfile
-	estCost := float64(len(subgoals)) * 2.5
-	estDuration := time.Duration(len(subgoals)) * 10 * time.Minute
-	if len(subgoals) == 0 {
+	estCost := float64(totalSubgoals) * 2.5
+	estDuration := time.Duration(totalSubgoals) * 10 * time.Minute
+	if totalSubgoals == 0 {
 		estCost = 0
 		estDuration = 0
 	}
@@ -428,7 +452,7 @@ func (s *DefaultPlanningService) executePlanningEpisode(
 	}
 
 	var escalation EscalationAction = ActionNone
-	if len(subgoals) > 0 && (cp.OverallConfidence < req.MinConfidenceFloor || cp.OverallConfidence < profile.EscalationThresholds["ConfidenceFloor"]) {
+	if totalSubgoals > 0 && (cp.OverallConfidence < req.MinConfidenceFloor || cp.OverallConfidence < profile.EscalationThresholds["ConfidenceFloor"]) {
 		if depth == DepthReflexive {
 			escalation = ActionRecommendHigherDepth
 			resultStatus = ResultEscalationRecommended
@@ -441,43 +465,89 @@ func (s *DefaultPlanningService) executePlanningEpisode(
 		}
 	}
 
-	seq := atomic.AddUint64(&s.seqCounter, 1)
-	planID := fmt.Sprintf("plan-%d-%d", time.Now().UnixNano(), seq)
-	traceID := fmt.Sprintf("trace-%d-%d", time.Now().UnixNano(), seq)
+	traceSeq := atomic.AddUint64(&s.seqCounter, 1)
+	traceID := fmt.Sprintf("trace-%d-%d", time.Now().UnixNano(), traceSeq)
 
-	planBuilder := NewPlanBuilder().
-		WithIdentity(planID, snapshot.SnapshotID, traceID).
-		WithGoalAndDomain(req.Goal, req.Domain, string(depth)).
-		WithEstimates(estCost, estDuration, nil).
-		WithConfidenceProfile(cp).
-		WithStatus(planStatus, nil).
-		WithReplayMetadata(ReplayMetadata{
-			StrategySnapshotID: snapshot.SnapshotID,
-			ReplayFidelity:     "EXACT",
-			ReplaySeed:         uint64(start.UnixNano()),
-			WorkingMemoryHash:  req.ContextRef,
-		})
+	var resPlans []*Plan
+	if totalSubgoals == 0 {
+		seq := atomic.AddUint64(&s.seqCounter, 1)
+		planID := fmt.Sprintf("plan-%d-%d", time.Now().UnixNano(), seq)
+		planBuilder := NewPlanBuilder().
+			WithIdentity(planID, snapshot.SnapshotID, traceID).
+			WithGoalAndDomain(req.Goal, req.Domain, string(depth)).
+			WithResolvedGoal(req.ResolvedGoal).
+			WithEstimates(0, 0, nil).
+			WithConfidenceProfile(cp).
+			WithStatus(planStatus, nil).
+			WithReplayMetadata(ReplayMetadata{
+				StrategySnapshotID: snapshot.SnapshotID,
+				ReplayFidelity:     "EXACT",
+				ReplaySeed:         uint64(start.UnixNano()),
+				WorkingMemoryHash:  req.ContextRef,
+			})
 
-	for _, sg := range subgoals {
-		planBuilder.AddSubgoal(sg)
-		graph.Nodes[sg.SubgoalID] = sg.Title
-	}
-	for _, edge := range edges {
-		planBuilder.AddDependency(edge)
-	}
-	graph.Edges = edges
+		plan, err := planBuilder.Build()
+		if err != nil {
+			return nil, fmt.Errorf("stage 4 fallback plan build failed: %w", err)
+		}
+		fp, err := s.fingerprinter.ComputeFingerprint(plan)
+		if err != nil {
+			return nil, fmt.Errorf("stage 6 fingerprint computation failed: %w", err)
+		}
+		plan.PlanFingerprint = fp
+		if err := plan.Validate(); err != nil {
+			return nil, fmt.Errorf("firewall stage 8 plan validation failed: %w", err)
+		}
+		resPlans = append(resPlans, plan)
+	} else {
+		for _, contrib := range contribs {
+			if len(contrib.Subgoals) == 0 {
+				continue
+			}
+			seq := atomic.AddUint64(&s.seqCounter, 1)
+			planID := fmt.Sprintf("plan-%d-%d", time.Now().UnixNano(), seq)
+			cEstCost := float64(len(contrib.Subgoals)) * 2.5
+			cEstDuration := time.Duration(len(contrib.Subgoals)) * 10 * time.Minute
 
-	plan, err := planBuilder.Build()
-	if err != nil {
-		return nil, fmt.Errorf("stage 4 plan build failed: %w", err)
-	}
+			planBuilder := NewPlanBuilder().
+				WithIdentity(planID, snapshot.SnapshotID, traceID).
+				WithGoalAndDomain(req.Goal, req.Domain, string(depth)).
+				WithPlannerIdentity(contrib.SpecialistName, resolvePlannerType(contrib.SpecialistName)).
+				WithResolvedGoal(req.ResolvedGoal).
+				WithEstimates(cEstCost, cEstDuration, nil).
+				WithConfidenceProfile(cp).
+				WithStatus(planStatus, nil).
+				WithReplayMetadata(ReplayMetadata{
+					StrategySnapshotID: snapshot.SnapshotID,
+					ReplayFidelity:     "EXACT",
+					ReplaySeed:         uint64(start.UnixNano()),
+					WorkingMemoryHash:  req.ContextRef,
+				})
 
-	// Stage 6: Compute PlanFingerprint
-	fp, err := s.fingerprinter.ComputeFingerprint(plan)
-	if err != nil {
-		return nil, fmt.Errorf("stage 6 fingerprint computation failed: %w", err)
+			for _, sg := range contrib.Subgoals {
+				planBuilder.AddSubgoal(sg)
+				graph.Nodes[sg.SubgoalID] = sg.Title
+			}
+			for _, edge := range contrib.Edges {
+				planBuilder.AddDependency(edge)
+				graph.Edges = append(graph.Edges, edge)
+			}
+
+			plan, err := planBuilder.Build()
+			if err != nil {
+				return nil, fmt.Errorf("stage 4 plan build failed for specialist %s: %w", contrib.SpecialistName, err)
+			}
+			fp, err := s.fingerprinter.ComputeFingerprint(plan)
+			if err != nil {
+				return nil, fmt.Errorf("stage 6 fingerprint computation failed for specialist %s: %w", contrib.SpecialistName, err)
+			}
+			plan.PlanFingerprint = fp
+			if err := plan.Validate(); err != nil {
+				return nil, fmt.Errorf("firewall stage 8 plan validation failed for specialist %s: %w", contrib.SpecialistName, err)
+			}
+			resPlans = append(resPlans, plan)
+		}
 	}
-	plan.PlanFingerprint = fp
 
 	// Stage 5: Assemble PlanningTrace
 	stats := cache.Summary()
@@ -513,16 +583,19 @@ func (s *DefaultPlanningService) executePlanningEpisode(
 	} else if depth == DepthStrategic {
 		horizon = "STRATEGIC"
 	}
+
 	strat := resolveSearchStrategy(profile, horizon)
 	searchStrategyID := ""
 	if strat != nil {
 		searchStrategyID = strat.SearchID
 	}
 
+	primaryPlanID := resPlans[0].PlanID
+
 	traceBuilder := NewPlanningTraceBuilder().
-		WithIdentity(traceID, planID, snapshot.SnapshotID).
-		WithDiagnostics(termReason, stats, float64(len(subgoals))*1.5, cp, qm).
-		WithProvenance(policyFP, capFP, searchStrategyID, plan.ReplayMetadata)
+		WithIdentity(traceID, primaryPlanID, snapshot.SnapshotID).
+		WithDiagnostics(termReason, stats, float64(totalSubgoals)*1.5, cp, qm).
+		WithProvenance(policyFP, capFP, searchStrategyID, resPlans[0].ReplayMetadata)
 
 	for _, st := range stepLogs {
 		traceBuilder.AddStepLog(st)
@@ -553,8 +626,8 @@ func (s *DefaultPlanningService) executePlanningEpisode(
 			}
 			usage.PlansGenerated = uint32(st.NodesAdded)
 			usage.Success = (st.Status == "DONE")
-			if len(subgoals) > 0 {
-				usage.ContributionScore = float32(st.NodesAdded) / float32(len(subgoals))
+			if totalSubgoals > 0 {
+				usage.ContributionScore = float32(st.NodesAdded) / float32(totalSubgoals)
 				if usage.ContributionScore > 1.0 {
 					usage.ContributionScore = 1.0
 				}
@@ -580,7 +653,7 @@ func (s *DefaultPlanningService) executePlanningEpisode(
 					usage.SkipReason = SkipCapabilityDisabled
 				} else if ctx.Err() != nil {
 					usage.SkipReason = SkipCancelled
-				} else if len(subgoals) == 0 {
+				} else if totalSubgoals == 0 {
 					usage.SkipReason = SkipNoApplicableGoal
 				} else {
 					usage.SkipReason = SkipHigherPrioritySpecialist
@@ -588,7 +661,7 @@ func (s *DefaultPlanningService) executePlanningEpisode(
 			} else {
 				if ctx.Err() != nil {
 					usage.SkipReason = SkipCancelled
-				} else if len(subgoals) == 0 {
+				} else if totalSubgoals == 0 {
 					usage.SkipReason = SkipNoApplicableGoal
 				} else {
 					usage.SkipReason = SkipHigherPrioritySpecialist
@@ -603,16 +676,13 @@ func (s *DefaultPlanningService) executePlanningEpisode(
 		return nil, fmt.Errorf("stage 5 trace build failed: %w", err)
 	}
 	trace.DecompositionTree = DecompositionNode{
-		NodeID:   planID,
+		NodeID:   primaryPlanID,
 		Title:    req.Goal,
 		NodeType: "GOAL",
 	}
 	trace.DependencyGraph = *graph
 
 	// Stage 8: Validation Firewall & Storage
-	if err := plan.Validate(); err != nil {
-		return nil, fmt.Errorf("firewall stage 8 plan validation failed: %w", err)
-	}
 	if err := trace.Validate(); err != nil {
 		return nil, fmt.Errorf("firewall stage 8 trace validation failed: %w", err)
 	}
@@ -622,9 +692,9 @@ func (s *DefaultPlanningService) executePlanningEpisode(
 	res := &PlanningResult{
 		ResultID:                 fmt.Sprintf("res-%d", time.Now().UnixNano()),
 		RequestID:                req.RequestID,
-		Plans:                    []*Plan{plan},
+		Plans:                    resPlans,
 		Traces:                   []*PlanningTrace{trace},
-		PrimaryPlanID:            plan.PlanID,
+		PrimaryPlanID:            primaryPlanID,
 		ResultStatus:             resultStatus,
 		Status:                   planStatus,
 		EscalationRecommendation: escalation,
@@ -636,15 +706,20 @@ func (s *DefaultPlanningService) executePlanningEpisode(
 		return nil, fmt.Errorf("firewall stage 8 result validation failed: %w", err)
 	}
 
+	devLog("Planning", "Plan approved")
+
 	// Publish to Global Workspace if configured and depth warrants broadcast
 	if s.publisher != nil && s.storer != nil && ShouldPublishToWorkspace(depth) {
 		var parentID string
 		if req != nil && req.Metadata != nil {
 			parentID = req.Metadata["parent_ref"]
 		}
-		_, _ = PublishPlan(ctx, plan, s.storer, s.publisher, parentID)
+		for _, p := range res.Plans {
+			_, _ = PublishPlan(ctx, p, s.storer, s.publisher, parentID)
+		}
 		_, _ = PublishPlanningTrace(ctx, trace, s.storer, s.publisher, parentID)
 		_, _ = PublishPlanningResult(ctx, res, s.storer, s.publisher, parentID)
+		devLog("Planning", "Published TopicCandidatePlans")
 	}
 
 	return res, nil

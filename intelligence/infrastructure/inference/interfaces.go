@@ -42,6 +42,8 @@ type ExecutionHints struct {
 	ComputeBudgetUnits int
 	// OutputDetailHint suggests response verbosity ("compact", "standard", "comprehensive").
 	OutputDetailHint string
+	// BypassCache requests direct execution against the physical backend, bypassing content-addressed memoization.
+	BypassCache bool
 }
 
 // InferenceRequest defines the input contract submitted by a cognitive ability.
@@ -116,6 +118,10 @@ type InferenceService interface {
 
 	// Name returns canonical component name ("Intelligence.Infrastructure.Inference").
 	Name() string
+
+	// ClearCache purges all cached inference results stored under prefix "inference/cache/".
+	ClearCache() error
+
 	// Start boots worker pools and queue processing.
 	Start() error
 	// Close gracefully shuts down workers and rejects new requests.

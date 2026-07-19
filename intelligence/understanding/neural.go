@@ -53,6 +53,26 @@ func NewDefaultNeuralSpecialist() *DefaultNeuralSpecialist {
 			BaseConf: 0.84,
 			SlotName: "city",
 		},
+		{
+			Keywords: []string{"hello", "hi", "greetings", "hey"},
+			Intent:   "greet_user",
+			BaseConf: 0.90,
+		},
+		{
+			Keywords: []string{"who", "identity", "what are you"},
+			Intent:   "query_identity",
+			BaseConf: 0.88,
+		},
+		{
+			Keywords: []string{"how are you", "wellbeing"},
+			Intent:   "query_wellbeing",
+			BaseConf: 0.86,
+		},
+		{
+			Keywords: []string{"goodbye", "bye", "farewell"},
+			Intent:   "farewell_user",
+			BaseConf: 0.90,
+		},
 	}
 	return n
 }

@@ -62,6 +62,8 @@ type OutputAdapter interface {
 type PayloadStorer interface {
 	// Store persists data and returns its content-addressed key (SHA-256 hex).
 	Store(ctx context.Context, data []byte) (string, error)
+	// Retrieve fetches data by its content-addressed key.
+	Retrieve(ctx context.Context, key string) ([]byte, error)
 }
 
 // ============================================================================

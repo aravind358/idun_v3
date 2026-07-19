@@ -276,6 +276,10 @@ func (s *Storage) resolveKeyLocked(key string) (string, error) {
 		return "", errors.New("storage: invalid key characters")
 	}
 
+	if strings.HasPrefix(key, "storage://") {
+		key = strings.TrimPrefix(key, "storage://")
+	}
+
 	cleanKey := filepath.Clean(filepath.FromSlash(key))
 	fullPath := filepath.Join(s.path, cleanKey)
 

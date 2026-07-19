@@ -141,6 +141,8 @@ type planPayload struct {
 	PlanID            string  `json:"plan_id"`
 	Goal              string  `json:"goal"`
 	Domain            string  `json:"domain"`
+	PlannerID         string  `json:"planner_id,omitempty"`
+	PlannerType       string  `json:"planner_type,omitempty"`
 	EstimatedCost     float64 `json:"estimated_cost"`
 	ConfidenceProfile struct {
 		OverallConfidence float64 `json:"overall_confidence"`
@@ -164,6 +166,8 @@ func (s *DefaultDecisionService) handleCandidatePlans(ctx context.Context, env c
 	if env.ID == "" || env.Topic != communication.TopicCandidatePlans || env.PayloadRef == "" {
 		return errors.New("decision: invalid candidate plans envelope")
 	}
+
+	devLog("Decision", "Received TopicCandidatePlans")
 
 	if s.storer == nil || s.publisher == nil {
 		return errors.New("decision: workspace bridge not fully configured")
@@ -196,6 +200,16 @@ func (s *DefaultDecisionService) handleCandidatePlans(ctx context.Context, env c
 		if p == nil {
 			continue
 		}
+		meta := make(map[string]string)
+		if p.PlannerID != "" {
+			meta["planner_id"] = p.PlannerID
+		}
+		if p.PlannerType != "" {
+			meta["planner_type"] = p.PlannerType
+		}
+		if p.SourceTier != "" {
+			meta["source_tier"] = p.SourceTier
+		}
 		cs.Candidates = append(cs.Candidates, Candidate{
 			ID:            p.PlanID,
 			Description:   p.Goal,
@@ -204,6 +218,7 @@ func (s *DefaultDecisionService) handleCandidatePlans(ctx context.Context, env c
 				"confidence": p.ConfidenceProfile.OverallConfidence,
 				"cost":       p.EstimatedCost,
 			},
+			Metadata: meta,
 		})
 	}
 
@@ -217,12 +232,29 @@ func (s *DefaultDecisionService) handleCandidatePlans(ctx context.Context, env c
 		return fmt.Errorf("decision: failed to evaluate candidate plans: %w", err)
 	}
 
+	var selectedDesc string
+	for _, cand := range cs.Candidates {
+		if cand.ID == rec.SelectedCandidateID {
+			selectedDesc = cand.Description
+			break
+		}
+	}
+	if selectedDesc == "" && len(cs.Candidates) > 0 {
+		selectedDesc = cs.Candidates[0].Description
+	}
+
+	devLog("Decision", "Candidate selected")
+
 	parentID := env.ParentRef
 	if parentID == "" {
 		parentID = env.ID
 	}
-	_, err = PublishDeliberativeDecision(ctx, rec, s.storer, s.publisher, parentID)
-	return err
+	_, err = PublishDeliberativeDecision(ctx, rec, selectedDesc, s.storer, s.publisher, parentID)
+	if err != nil {
+		return err
+	}
+	devLog("Decision", "Published TopicEvaluatedOptions")
+	return nil
 }
 
 // EvaluateReflexive executes fast-path linear utility scoring (<2ms budget).

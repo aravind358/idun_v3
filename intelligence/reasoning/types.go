@@ -1,8 +1,12 @@
 package reasoning
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 )
 
 // SchemaVersion defines the canonical invariant schema version ("2.0").
@@ -93,6 +97,163 @@ const (
 	StrategyDeliberativeEscalate  StrategyIdentifier = "STRATEGY_DELIBERATIVE_ESCALATE"
 	StrategyDynamicHybrid         StrategyIdentifier = "STRATEGY_DYNAMIC_HYBRID"
 )
+
+// GoalKind represents the semantic category of the desired outcome deduced by Reasoning.
+// It describes the nature of the outcome and MUST NOT specify HOW Planning should achieve it.
+type GoalKind string
+
+const (
+	GoalKindCommunicative        GoalKind = "COMMUNICATIVE"
+	GoalKindStateChange          GoalKind = "STATE_CHANGE"
+	GoalKindToolExecution        GoalKind = "TOOL_EXECUTION"
+	GoalKindInformationRetrieval GoalKind = "INFORMATION_RETRIEVAL"
+)
+
+// IsValid checks whether GoalKind is a known enum value.
+func (k GoalKind) IsValid() bool {
+	switch k {
+	case GoalKindCommunicative, GoalKindStateChange, GoalKindToolExecution, GoalKindInformationRetrieval:
+		return true
+	default:
+		return false
+	}
+}
+
+// SemanticGoal defines the machine-readable desired outcome deduced by Reasoning.
+// It describes WHAT target state or proposition should become true and what domain
+// boundaries constrain it, cleanly decoupled from HOW Planning will achieve it.
+type SemanticGoal struct {
+	Kind          GoalKind          `json:"kind"`                     // Required: COMMUNICATIVE, STATE_CHANGE, TOOL_EXECUTION, INFORMATION_RETRIEVAL
+	Intent        string            `json:"intent"`                   // Required: Categorized intent (e.g. "greet_user", "set_alarm")
+	Target        string            `json:"target"`                   // Required: Target entity or domain (e.g. "user", "alarm_service")
+	DesiredState  map[string]string `json:"desired_state"`            // Required: Desired outcome conditions (e.g. {"acknowledged": "true"})
+	OperationHint string            `json:"operation_hint,omitempty"` // Optional hint for downstream template selection
+	Constraints   map[string]string `json:"constraints,omitempty"`    // Optional domain boundaries/invariants
+}
+
+// Validate checks structural requirements of SemanticGoal.
+// It verifies schema invariants but does not enforce domain-specific intent-to-target mappings.
+func (g *SemanticGoal) Validate() error {
+	if g == nil {
+		return nil
+	}
+	if !g.Kind.IsValid() {
+		return fmt.Errorf("reasoning: invalid goal kind %q", g.Kind)
+	}
+	if g.Intent == "" {
+		return errors.New("reasoning: semantic goal missing intent")
+	}
+	if g.Target == "" {
+		return errors.New("reasoning: semantic goal missing target")
+	}
+	if g.DesiredState == nil {
+		return errors.New("reasoning: semantic goal missing desired_state map")
+	}
+	return nil
+}
+
+// Clone returns a deep copy of SemanticGoal.
+func (g *SemanticGoal) Clone() *SemanticGoal {
+	if g == nil {
+		return nil
+	}
+	out := *g
+	if g.DesiredState != nil {
+		out.DesiredState = make(map[string]string, len(g.DesiredState))
+		for k, v := range g.DesiredState {
+			out.DesiredState[k] = v
+		}
+	} else {
+		out.DesiredState = make(map[string]string)
+	}
+	if g.Constraints != nil {
+		out.Constraints = make(map[string]string, len(g.Constraints))
+		for k, v := range g.Constraints {
+			out.Constraints[k] = v
+		}
+	} else {
+		out.Constraints = nil
+	}
+	return &out
+}
+
+// Fingerprint computes a deterministic SHA-256 hex digest for SemanticGoal.
+// Two SemanticGoal instances with identical GoalKind, normalized Intent, normalized Target,
+// sorted DesiredState key=value pairs, and sorted Constraints key=value pairs produce the same fingerprint.
+// OperationHint does NOT participate in fingerprint calculation as it is a Planning hint rather than desired state.
+func (g *SemanticGoal) Fingerprint() string {
+	if g == nil || g.Validate() != nil {
+		return ""
+	}
+	kindStr := strings.ToUpper(strings.TrimSpace(string(g.Kind)))
+	intentStr := strings.ToLower(strings.TrimSpace(g.Intent))
+	targetStr := strings.ToLower(strings.TrimSpace(g.Target))
+
+	var dsKeys []string
+	if g.DesiredState != nil {
+		for k := range g.DesiredState {
+			dsKeys = append(dsKeys, k)
+		}
+		sort.Strings(dsKeys)
+	}
+	var dsParts []string
+	for _, k := range dsKeys {
+		normKey := strings.ToLower(strings.TrimSpace(k))
+		normVal := strings.ToLower(strings.TrimSpace(g.DesiredState[k]))
+		dsParts = append(dsParts, fmt.Sprintf("%s=%s", normKey, normVal))
+	}
+	dsStr := strings.Join(dsParts, ";")
+
+	var cKeys []string
+	if g.Constraints != nil {
+		for k := range g.Constraints {
+			cKeys = append(cKeys, k)
+		}
+		sort.Strings(cKeys)
+	}
+	var cParts []string
+	for _, k := range cKeys {
+		normKey := strings.ToLower(strings.TrimSpace(k))
+		normVal := strings.ToLower(strings.TrimSpace(g.Constraints[k]))
+		cParts = append(cParts, fmt.Sprintf("%s=%s", normKey, normVal))
+	}
+	cStr := strings.Join(cParts, ";")
+
+	raw := fmt.Sprintf("semantic-goal|kind:%s|intent:%s|target:%s|desired:%s|constraints:%s",
+		kindStr, intentStr, targetStr, dsStr, cStr)
+	hash := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(hash[:])
+}
+
+// ComputeGoalFingerprint is a helper returning the deterministic fingerprint for a given SemanticGoal.
+func ComputeGoalFingerprint(g *SemanticGoal) string {
+	return g.Fingerprint()
+}
+
+// PresentationDirectives defines presentation metadata specifying HOW an eventual approved
+// response may be presented (e.g. tone, verbosity, locale), separate from WHAT should become true.
+type PresentationDirectives struct {
+	Tone      string `json:"tone,omitempty"`      // e.g. "professional", "conversational", "concise"
+	Verbosity string `json:"verbosity,omitempty"` // e.g. "brief", "detailed", "standard"
+	Language  string `json:"language,omitempty"`  // e.g. "en-US", "ja-JP"
+}
+
+// Validate checks whether PresentationDirectives is well-formed.
+func (p *PresentationDirectives) Validate() error {
+	if p == nil {
+		return nil
+	}
+	return nil
+}
+
+// Clone returns a deep copy of PresentationDirectives.
+func (p *PresentationDirectives) Clone() *PresentationDirectives {
+	if p == nil {
+		return nil
+	}
+	out := *p
+	return &out
+}
 
 // CompilationCondition specifies an antecedent condition for learning compilation.
 type CompilationCondition struct {
@@ -264,6 +425,7 @@ type ReasoningHypothesis struct {
 	ID                   string            `json:"id"`
 	Type                 HypothesisType    `json:"type"`
 	Conclusion           string            `json:"conclusion"`
+	ProposedGoal         *SemanticGoal     `json:"proposed_goal,omitempty"`
 	ReasoningConfidence  float64           `json:"reasoning_confidence,omitempty"`
 	CalibratedConfidence float64           `json:"calibrated_confidence"`
 	ContributingStages   []StageIdentifier `json:"contributing_stages"`
@@ -285,6 +447,11 @@ func (h ReasoningHypothesis) Validate() error {
 	if h.CalibratedConfidence < 0.0 || h.CalibratedConfidence > 1.0 {
 		return fmt.Errorf("%w: hypothesis %q confidence %f", ErrInvalidConfidence, h.ID, h.CalibratedConfidence)
 	}
+	if h.ProposedGoal != nil {
+		if err := h.ProposedGoal.Validate(); err != nil {
+			return fmt.Errorf("hypothesis %q proposed_goal: %w", h.ID, err)
+		}
+	}
 	return nil
 }
 
@@ -303,6 +470,7 @@ func (h ReasoningHypothesis) Clone() ReasoningHypothesis {
 	} else {
 		out.SupportingPremises = []string{}
 	}
+	out.ProposedGoal = h.ProposedGoal.Clone()
 	return out
 }
 
@@ -318,9 +486,11 @@ type ReasoningResult struct {
 	PrimaryHypothesis       ReasoningHypothesis    `json:"primary_hypothesis"`
 	AmbiguitySet            []ReasoningHypothesis  `json:"ambiguity_set"`
 	ContradictionsFlagged   []ContradictionFlag    `json:"contradictions_flagged"`
-	ProposedBeliefUpdates   []BeliefUpdateProposal `json:"proposed_belief_updates"`
-	CompilationCandidate    *CompilationCandidate  `json:"compilation_candidate,omitempty"`
-	StrategyTelemetry       StrategyTelemetry      `json:"strategy_telemetry"`
+	ProposedBeliefUpdates   []BeliefUpdateProposal  `json:"proposed_belief_updates"`
+	CompilationCandidate    *CompilationCandidate   `json:"compilation_candidate,omitempty"`
+	ResolvedGoal            *SemanticGoal           `json:"resolved_goal,omitempty"`
+	PresentationDirectives  *PresentationDirectives `json:"presentation_directives,omitempty"`
+	StrategyTelemetry       StrategyTelemetry       `json:"strategy_telemetry"`
 	ConstitutionAnnotations []string               `json:"constitution_annotations"`
 	ReasoningTrace          []StageTraceLog        `json:"reasoning_trace"`
 	OfflineMode             bool                   `json:"offline_mode"`
@@ -365,6 +535,16 @@ func (r ReasoningResult) Validate() error {
 	if err := r.CompilationCandidate.Validate(); err != nil {
 		return fmt.Errorf("compilation_candidate: %w", err)
 	}
+	if r.ResolvedGoal != nil {
+		if err := r.ResolvedGoal.Validate(); err != nil {
+			return fmt.Errorf("resolved_goal: %w", err)
+		}
+	}
+	if r.PresentationDirectives != nil {
+		if err := r.PresentationDirectives.Validate(); err != nil {
+			return fmt.Errorf("presentation_directives: %w", err)
+		}
+	}
 	if err := r.StrategyTelemetry.Validate(); err != nil {
 		return fmt.Errorf("strategy_telemetry: %w", err)
 	}
@@ -400,6 +580,8 @@ func (r ReasoningResult) Clone() ReasoningResult {
 	}
 
 	out.CompilationCandidate = r.CompilationCandidate.Clone()
+	out.ResolvedGoal = r.ResolvedGoal.Clone()
+	out.PresentationDirectives = r.PresentationDirectives.Clone()
 	out.StrategyTelemetry = r.StrategyTelemetry.Clone()
 
 	if len(r.ConstitutionAnnotations) > 0 {

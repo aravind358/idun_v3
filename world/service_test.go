@@ -3,6 +3,7 @@ package world_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +30,14 @@ func (m *mockPayloadStorer) Store(_ context.Context, data []byte) (string, error
 	key := "mock-ref-" + string(data[:min(8, len(data))])
 	m.stored[key] = data
 	return key, nil
+}
+
+func (m *mockPayloadStorer) Retrieve(_ context.Context, key string) ([]byte, error) {
+	val, ok := m.stored[key]
+	if !ok {
+		return nil, errors.New("not found")
+	}
+	return val, nil
 }
 
 func min(a, b int) int {

@@ -203,6 +203,8 @@ func (s *Service) handlePerceptionEnvelope(ctx context.Context, env communicatio
 		return errors.New("understanding: perception envelope validation failed: empty PayloadRef")
 	}
 
+	devLog("Understanding", "Received TopicPerception")
+
 	modifiedEnv := env
 	if s.storer != nil {
 		data, err := s.storer.Retrieve(ctx, env.PayloadRef)
@@ -282,6 +284,11 @@ func (s *Service) interpretInternal(ctx context.Context, perceptionEnv communica
 	}
 	s.mu.RUnlock()
 
+	if err := ctx.Err(); err != nil {
+		s.telemetry.recordCancellation()
+		return SemanticFrame{}, err
+	}
+
 	rawText := perceptionEnv.PayloadRef
 	if rawText == "" {
 		rawText = perceptionEnv.ID
@@ -333,6 +340,8 @@ func (s *Service) interpretInternal(ctx context.Context, perceptionEnv communica
 					CreatedAt:     time.Now().UTC(),
 				}
 				_ = s.ws.Publish(ctx, pubEnv)
+				devLog("Understanding", "Intent", delibFrame.PrimaryHypothesis.Intent)
+				devLog("Understanding", "Published TopicUserIntent")
 			}
 			return delibFrame, nil
 		}
@@ -382,6 +391,8 @@ func (s *Service) interpretInternal(ctx context.Context, perceptionEnv communica
 
 	s.telemetry.recordInterpretation(durationUs, 1+len(frame.AmbiguitySet), frame.Status == StatusAmbiguousBeam)
 
+	devLog("Understanding", "Intent", frame.PrimaryHypothesis.Intent)
+
 	if frame.Status != StatusFailedImpasse && s.ws != nil {
 		payloadBytes, _ := json.Marshal(frame)
 		payloadRef := string(payloadBytes)
@@ -404,6 +415,7 @@ func (s *Service) interpretInternal(ctx context.Context, perceptionEnv communica
 			CreatedAt:     time.Now().UTC(),
 		}
 		_ = s.ws.Publish(ctx, pubEnv)
+		devLog("Understanding", "Published TopicUserIntent")
 	}
 
 	return frame, nil

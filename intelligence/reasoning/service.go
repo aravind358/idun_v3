@@ -14,6 +14,7 @@ import (
 	"idun/intelligence/executive"
 	"idun/intelligence/infrastructure/embedding"
 	"idun/intelligence/infrastructure/inference"
+	"idun/intelligence/understanding"
 	"idun/intelligence/workspace"
 )
 
@@ -311,6 +312,7 @@ func (s *Service) ReasonEnvelope(ctx context.Context, perceptionEnv communicatio
 	constSpec := s.constSpec
 	ws := s.ws
 	pubTopic := s.pubTopic
+	storer := s.storer
 	s.mu.RUnlock()
 
 	if closed {
@@ -350,12 +352,31 @@ func (s *Service) ReasonEnvelope(ctx context.Context, perceptionEnv communicatio
 	})
 	execSpecialists = append(execSpecialists, StageS0ContextAssembly)
 
+	var frame *understanding.SemanticFrame
+	if perceptionEnv.PayloadRef != "" {
+		var frameBytes []byte
+		if storer != nil {
+			if data, err := storer.Retrieve(ctx, perceptionEnv.PayloadRef); err == nil && len(data) > 0 {
+				frameBytes = data
+			}
+		}
+		if len(frameBytes) == 0 {
+			frameBytes = []byte(perceptionEnv.PayloadRef)
+		}
+		var decoded understanding.SemanticFrame
+		if err := json.Unmarshal(frameBytes, &decoded); err == nil {
+			if valErr := decoded.Validate(); valErr == nil {
+				frame = &decoded
+			}
+		}
+	}
+
 	var hypotheses []ReasoningHypothesis
 
 	// Stage S1: Symbolic Fast Path
 	if spec.IsStageEnabled(StageS1SymbolicFast) {
 		s1Start := time.Now()
-		hyps, err := symbolicSpec.Evaluate(ctx, perceptionEnv, nil, memContext)
+		hyps, err := symbolicSpec.Evaluate(ctx, perceptionEnv, frame, memContext)
 		if err != nil {
 			return ReasoningResult{}, fmt.Errorf("stage S1 symbolic evaluation failed: %w", err)
 		}
@@ -372,7 +393,7 @@ func (s *Service) ReasonEnvelope(ctx context.Context, perceptionEnv communicatio
 	// Stage S2: Relational Graph Reasoning (Ephemeral session-scoped graph)
 	if spec.IsStageEnabled(StageS2RelationalGraph) {
 		s2Start := time.Now()
-		hyps, err := relationalSpec.Evaluate(ctx, perceptionEnv, nil, memContext, spec)
+		hyps, err := relationalSpec.Evaluate(ctx, perceptionEnv, frame, memContext, spec)
 		if err != nil {
 			return ReasoningResult{}, fmt.Errorf("stage S2 relational graph evaluation failed: %w", err)
 		}
@@ -389,7 +410,7 @@ func (s *Service) ReasonEnvelope(ctx context.Context, perceptionEnv communicatio
 	// Stage S5: Case-Based / Analogical Reasoning
 	if spec.IsStageEnabled(StageS5CaseAnalogy) {
 		s5Start := time.Now()
-		hyps, err := analogySpec.EvaluateAnalogy(ctx, perceptionEnv, nil, memContext)
+		hyps, err := analogySpec.EvaluateAnalogy(ctx, perceptionEnv, frame, memContext)
 		if err != nil {
 			return ReasoningResult{}, fmt.Errorf("stage S5 case analogy evaluation failed: %w", err)
 		}
@@ -467,21 +488,46 @@ func (s *Service) ReasonEnvelope(ctx context.Context, perceptionEnv communicatio
 	execSpecialists = append(execSpecialists, StageS6BeamSelection)
 
 	escalated := false
-	// Stage S8: Deliberative LLM Reasoning (escalate only if primary confidence < EscalationThreshold)
+	// Stage S8: Deliberative LLM Reasoning (escalate only if primary confidence < EscalationThreshold or if no internal specialist produced a valid ProposedGoal above threshold)
 	if spec.IsStageEnabled(StageS8DeliberativeLLM) && delibSpec != nil {
-		s8Start := time.Now()
-		delibHyps, err := delibSpec.EvaluateDeliberative(ctx, perceptionEnv, primary.ReasoningConfidence, spec.EscalationThreshold)
-		if err == nil && len(delibHyps) > 0 {
-			escalated = true
-			combined := append(hypotheses, delibHyps...)
-			primary, beam, _ = beamSpec.SelectBeam(combined, MaxBeamWidth, 0.25)
-			traceLogs = append(traceLogs, StageTraceLog{
-				Stage:               StageS8DeliberativeLLM,
-				ExecutionDurationMs: float64(time.Since(s8Start).Microseconds()) / 1000.0,
-				Description:         "Escalated to Stage S8 Deliberative LLM and updated beam selection",
-				OutputSummary:       fmt.Sprintf("deliberative_hyps=%d", len(delibHyps)),
-			})
-			execSpecialists = append(execSpecialists, StageS8DeliberativeLLM)
+		shouldEscalate := primary.ReasoningConfidence < spec.EscalationThreshold
+		if !shouldEscalate {
+			hasValidProposedGoal := false
+			for _, h := range hypotheses {
+				if h.ProposedGoal != nil && h.ProposedGoal.Validate() == nil && h.ReasoningConfidence >= spec.EscalationThreshold {
+					hasValidProposedGoal = true
+					break
+				}
+			}
+			if !hasValidProposedGoal {
+				shouldEscalate = true
+			}
+		}
+
+		if shouldEscalate {
+			s8Start := time.Now()
+			triggerConf := primary.ReasoningConfidence
+			if triggerConf >= spec.EscalationThreshold {
+				triggerConf = 0.0
+			}
+			delibHyps, err := delibSpec.EvaluateDeliberative(ctx, perceptionEnv, triggerConf, spec.EscalationThreshold, s.storer)
+			if err == nil && len(delibHyps) > 0 {
+				escalated = true
+				combined := append(hypotheses, delibHyps...)
+				if spec.IsStageEnabled(StageS4EvidenceFusion) && bayesianSpec != nil {
+					if fusedCombined, err := bayesianSpec.FuseEvidence(ctx, combined); err == nil {
+						combined = fusedCombined
+					}
+				}
+				primary, beam, _ = beamSpec.SelectBeam(combined, MaxBeamWidth, 0.25)
+				traceLogs = append(traceLogs, StageTraceLog{
+					Stage:               StageS8DeliberativeLLM,
+					ExecutionDurationMs: float64(time.Since(s8Start).Microseconds()) / 1000.0,
+					Description:         "Escalated to Stage S8 Deliberative LLM and updated beam selection",
+					OutputSummary:       fmt.Sprintf("deliberative_hyps=%d", len(delibHyps)),
+				})
+				execSpecialists = append(execSpecialists, StageS8DeliberativeLLM)
+			}
 		}
 	}
 
@@ -514,6 +560,11 @@ func (s *Service) ReasonEnvelope(ctx context.Context, perceptionEnv communicatio
 		OutcomeStatus:        StatusUnambiguousSolved,
 	}
 
+	var resolvedGoal *SemanticGoal
+	if calPrimary.ProposedGoal != nil && calPrimary.ProposedGoal.Validate() == nil {
+		resolvedGoal = calPrimary.ProposedGoal.Clone()
+	}
+
 	resultEnvID := fmt.Sprintf("rs-env-%d", time.Now().UnixNano())
 	result := ReasoningResult{
 		SchemaVersion:           SchemaVersion,
@@ -525,6 +576,7 @@ func (s *Service) ReasonEnvelope(ctx context.Context, perceptionEnv communicatio
 		AmbiguitySet:            calBeam,
 		ContradictionsFlagged:   contradictions,
 		ProposedBeliefUpdates:   []BeliefUpdateProposal{},
+		ResolvedGoal:            resolvedGoal,
 		StrategyTelemetry:       telemetry,
 		ConstitutionAnnotations: []string{},
 		ReasoningTrace:          traceLogs,
@@ -548,6 +600,8 @@ func (s *Service) ReasonEnvelope(ctx context.Context, perceptionEnv communicatio
 		s.telemetry.recordValidationFailure()
 		return ReasoningResult{}, fmt.Errorf("reasoning result validation failed: %w", err)
 	}
+
+	devLog("Reasoning", "Goal created")
 
 	s.telemetry.recordEpisode(
 		durationMs,
@@ -585,12 +639,14 @@ func (s *Service) ReasonEnvelope(ctx context.Context, perceptionEnv communicatio
 			RawConfidence:   calPrimary.CalibratedConfidence,
 		}
 		_ = ws.Publish(ctx, pubEnv)
+		devLog("Reasoning", "Published TopicActiveGoals")
 	}
 
 	return result, nil
 }
 
 func (s *Service) handleEnvelope(ctx context.Context, env communication.Envelope) error {
+	devLog("Reasoning", "Received TopicUserIntent")
 	_, err := s.ReasonEnvelope(ctx, env, StrategySpec{})
 	return err
 }

@@ -2,6 +2,7 @@ package reasoning
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -10,6 +11,14 @@ import (
 	"idun/intelligence/infrastructure/embedding"
 	"idun/intelligence/understanding"
 )
+
+// HistoricalCasePayload defines the structured schema for stored case/episode records in memory.
+type HistoricalCasePayload struct {
+	Intent         string        `json:"intent,omitempty"`
+	ResolvedGoal   *SemanticGoal `json:"resolved_goal,omitempty"`
+	SemanticGoal   *SemanticGoal `json:"semantic_goal,omitempty"`
+	ParameterSlots []string      `json:"parameter_slots,omitempty"`
+}
 
 // CaseAnalogySpecialist implements Stage S5 Case-Based / Analogical Reasoning.
 // It retrieves structurally or semantically similar past experiences and generates
@@ -82,14 +91,84 @@ func (s *CaseAnalogySpecialist) EvaluateAnalogy(
 			if queryIntent != "" {
 				conclusion = fmt.Sprintf("Analogical match for intent %q from case %s (similarity=%.2f)", queryIntent, rec.ID, simScore)
 			}
+
+			var proposedGoal *SemanticGoal
+			var missingArtifactReason string
+			if len(rec.Payload) > 0 {
+				var wrapper HistoricalCasePayload
+				var candidateGoal *SemanticGoal
+				var paramSlots []string
+
+				if err := json.Unmarshal(rec.Payload, &wrapper); err == nil && (wrapper.ResolvedGoal != nil || wrapper.SemanticGoal != nil) {
+					if wrapper.ResolvedGoal != nil && wrapper.ResolvedGoal.Validate() == nil {
+						candidateGoal = wrapper.ResolvedGoal.Clone()
+					} else if wrapper.SemanticGoal != nil && wrapper.SemanticGoal.Validate() == nil {
+						candidateGoal = wrapper.SemanticGoal.Clone()
+					}
+					paramSlots = wrapper.ParameterSlots
+				} else {
+					// Try unmarshaling directly into SemanticGoal
+					var directGoal SemanticGoal
+					if err := json.Unmarshal(rec.Payload, &directGoal); err == nil && directGoal.Validate() == nil {
+						candidateGoal = directGoal.Clone()
+					}
+				}
+
+				if candidateGoal != nil {
+					// Deterministic parameter adaptation grounded in current SemanticFrame slots
+					if frame != nil && len(frame.PrimaryHypothesis.Slots) > 0 && candidateGoal.DesiredState != nil {
+						slotMap := make(map[string]string, len(frame.PrimaryHypothesis.Slots))
+						for _, slot := range frame.PrimaryHypothesis.Slots {
+							slotMap[slot.Name] = slot.Value
+						}
+						// Adapt ONLY explicitly parameterizable fields
+						if len(paramSlots) > 0 {
+							for _, param := range paramSlots {
+								if newVal, ok := slotMap[param]; ok {
+									if _, hasKey := candidateGoal.DesiredState[param]; hasKey {
+										candidateGoal.DesiredState[param] = newVal
+									}
+								}
+							}
+						} else if candidateGoal.Constraints != nil {
+							// Also check if parameter_slots stored inside constraints
+							if paramsStr, ok := candidateGoal.Constraints["parameter_slots"]; ok {
+								params := strings.Split(paramsStr, ",")
+								for _, param := range params {
+									param = strings.TrimSpace(param)
+									if newVal, exists := slotMap[param]; exists && param != "" {
+										if _, hasKey := candidateGoal.DesiredState[param]; hasKey {
+											candidateGoal.DesiredState[param] = newVal
+										}
+									}
+								}
+							}
+						}
+					}
+					proposedGoal = candidateGoal
+				} else {
+					missingArtifactReason = "case record payload does not contain structured ResolvedGoal or SemanticGoal"
+				}
+			} else {
+				missingArtifactReason = "case record payload is empty (Learning integration has not yet stored structured goals)"
+			}
+
+			premises := []string{fmt.Sprintf("analogical_case=%s", rec.ID)}
+			if proposedGoal != nil {
+				premises = append(premises, "stored_goal_recovered=true")
+			} else if missingArtifactReason != "" {
+				premises = append(premises, fmt.Sprintf("missing_learning_artifact=%s", missingArtifactReason))
+			}
+
 			hyps = append(hyps, ReasoningHypothesis{
 				ID:                  fmt.Sprintf("s5-hyp-%s-%d", perceptionEnv.ID, i),
 				Type:                HypothesisAnalogy,
 				Conclusion:          conclusion,
+				ProposedGoal:        proposedGoal,
 				ReasoningConfidence: simScore,
 				ContributingStages:  []StageIdentifier{StageS5CaseAnalogy},
-				SupportingPremises:   []string{fmt.Sprintf("analogical_case=%s", rec.ID)},
-				EvidenceTrace:        fmt.Sprintf("Retrieved via S5 Case-Based Analogy (score=%.2f)", simScore),
+				SupportingPremises:  premises,
+				EvidenceTrace:       fmt.Sprintf("Retrieved via S5 Case-Based Analogy (score=%.2f)", simScore),
 			})
 		}
 	}

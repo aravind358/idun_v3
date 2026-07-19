@@ -170,3 +170,144 @@ func TestService_FullCascadeWithBeamCalibrationConstitutionAndDeliberative(t *te
 		t.Errorf("expected Stage S9 Constitution to annotate approval")
 	}
 }
+
+func TestReasoningCascadeService_HelloTrace(t *testing.T) {
+	// Proves Phase 8: Exact "Hello" trace showing ProposedGoal -> Fingerprint -> ResolvedGoal
+	mockCal := &mockCalibService{multiplier: 1.0}
+	srv := NewService(DefaultConfig(), nil, nil, WithCalibrationService(mockCal))
+
+	frameJSON := []byte(`{
+		"FrameVersion": "2.0",
+		"EnvelopeID": "env-hello-trace",
+		"Status": "UNAMBIGUOUS",
+		"PrimaryHypothesis": {
+			"Intent": "greet_user",
+			"CalibratedConfidence": 0.95
+		}
+	}`)
+
+	env := communication.Envelope{
+		ID:            "env-hello-trace",
+		Source:        "perception",
+		PayloadRef:    string(frameJSON),
+		RawConfidence: 0.95,
+	}
+
+	spec := StrategySpec{
+		StrategyID: StrategySymbolicFast,
+		EnabledStages: []StageIdentifier{
+			StageS0ContextAssembly,
+			StageS1SymbolicFast,
+			StageS4EvidenceFusion,
+			StageS6BeamSelection,
+			StageS7Calibration,
+			StageS10ResultAssembly,
+		},
+	}
+
+	result, err := srv.ReasonEnvelope(context.Background(), env, spec)
+	if err != nil {
+		t.Fatalf("ReasonEnvelope failed for Hello trace: %v", err)
+	}
+
+	if result.PrimaryHypothesis.Conclusion != `Derived symbolic conclusion for intent "greet_user"` {
+		t.Errorf("unexpected primary conclusion: %q", result.PrimaryHypothesis.Conclusion)
+	}
+
+	proposed := result.PrimaryHypothesis.ProposedGoal
+	if proposed == nil {
+		t.Fatalf("expected primary hypothesis to have non-nil ProposedGoal")
+	}
+	if proposed.Kind != GoalKindCommunicative || proposed.Intent != "greet_user" || proposed.Target != "user" {
+		t.Errorf("unexpected ProposedGoal fields: %+v", proposed)
+	}
+
+	fp := proposed.Fingerprint()
+	if fp == "" {
+		t.Fatalf("expected valid non-empty fingerprint for ProposedGoal")
+	}
+
+	if result.ResolvedGoal == nil {
+		t.Fatalf("expected result.ResolvedGoal to be populated from valid primary ProposedGoal")
+	}
+	if result.ResolvedGoal.Fingerprint() != fp {
+		t.Errorf("expected ResolvedGoal fingerprint %q to match ProposedGoal fingerprint %q", result.ResolvedGoal.Fingerprint(), fp)
+	}
+
+	// Verify Planning boundary invariant: ResolvedGoal and PrimaryHypothesis are both preserved
+	// and Planning does not consume ResolvedGoal inside Reasoning service
+	if result.PrimaryHypothesis.ProposedGoal != proposed {
+		t.Errorf("expected PrimaryHypothesis.ProposedGoal pointer invariance")
+	}
+}
+
+func TestReasoningCascadeService_S8Interaction(t *testing.T) {
+	// Proves Phase 11 Scenarios A, B, and C
+	specialist := NewBayesianFusionSpecialist()
+
+	goalGreet := &SemanticGoal{
+		Kind:   GoalKindCommunicative,
+		Intent: "greet_user",
+		Target: "user",
+		DesiredState: map[string]string{
+			"acknowledged": "true",
+		},
+	}
+
+	// Scenario C: Internal specialist and S8 both propose SAME goal
+	hypsScenarioC := []ReasoningHypothesis{
+		{
+			ID:                  "hyp-internal-greet",
+			Type:                HypothesisType("Symbolic"),
+			Conclusion:          `Derived symbolic conclusion for intent "greet_user"`,
+			ReasoningConfidence: 0.75,
+			ProposedGoal:        goalGreet,
+			SupportingPremises:  []string{"rule_match=dialogue_intent:greet_user"},
+			ContributingStages:  []StageIdentifier{StageS1SymbolicFast},
+		},
+		{
+			ID:                  "hyp-s8-greet",
+			Type:                HypothesisType("Deliberative"),
+			Conclusion:          `Deliberative LLM conclusion for greet`,
+			ReasoningConfidence: 0.82,
+			ProposedGoal:        goalGreet.Clone(),
+			SupportingPremises:  []string{"llm_reasoning=greeting"},
+			ContributingStages:  []StageIdentifier{StageS8DeliberativeLLM},
+		},
+	}
+
+	fusedC, err := specialist.FuseEvidence(context.Background(), hypsScenarioC)
+	if err != nil {
+		t.Fatalf("Scenario C fusion failed: %v", err)
+	}
+	if len(fusedC) != 1 {
+		t.Fatalf("expected Scenario C to fuse duplicate S1 and S8 goals into 1 corroborated hypothesis, got %d", len(fusedC))
+	}
+	if fusedC[0].ReasoningConfidence <= 0.82 {
+		t.Errorf("expected corroborated confidence > 0.82, got %f", fusedC[0].ReasoningConfidence)
+	}
+
+	// Scenario B: S8 produces no valid ProposedGoal while internal produced low/nil goal
+	hypsScenarioB := []ReasoningHypothesis{
+		{
+			ID:                  "hyp-internal-fallback",
+			Type:                HypothesisInference,
+			Conclusion:          `Incomplete fallback without goal`,
+			ReasoningConfidence: 0.40,
+			ProposedGoal:        nil,
+		},
+		{
+			ID:                  "hyp-s8-nogoal",
+			Type:                HypothesisType("Deliberative"),
+			Conclusion:          `LLM analysis complete but no actionable goal`,
+			ReasoningConfidence: 0.60,
+			ProposedGoal:        nil,
+		},
+	}
+	fusedB, _ := specialist.FuseEvidence(context.Background(), hypsScenarioB)
+	beamSpec := NewBeamSelectionSpecialist()
+	primaryB, _, _ := beamSpec.SelectBeam(fusedB, MaxBeamWidth, 0.25)
+	if primaryB.ProposedGoal != nil {
+		t.Errorf("expected primary to have nil ProposedGoal when neither specialist produced valid goal")
+	}
+}

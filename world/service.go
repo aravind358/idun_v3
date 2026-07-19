@@ -2,9 +2,11 @@ package world
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -120,9 +122,11 @@ type Service struct {
 	// subscriptions holds active Workspace subscriptions (for cleanup on Close)
 	subscriptions []workspace.Subscription
 	cancelFunc    context.CancelFunc
+	doneCh        chan struct{}
 
-	started atomic.Bool
-	closed  atomic.Bool
+	started            atomic.Bool
+	closed             atomic.Bool
+	waitForRealization atomic.Bool
 }
 
 // ServiceOption configures a Service instance at initialization time.
@@ -153,6 +157,12 @@ func WithCapabilities(caps *WorldCapabilities) ServiceOption {
 		}
 	}
 }
+
+// SetWaitForRealization configures whether World should wait for Language Realization output instead of raw Executive output.
+func (s *Service) SetWaitForRealization(wait bool) {
+	s.waitForRealization.Store(wait)
+}
+
 
 // NewService constructs a new World Service with all required dependencies.
 //
@@ -192,6 +202,7 @@ func NewService(
 		ws:           ws,
 		telemetry:    &telemetryCollector{},
 		pending:      make(map[string]*pendingEntry),
+		doneCh:       make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(svc)
@@ -271,6 +282,13 @@ func (s *Service) Close() error {
 	if s.cancelFunc != nil {
 		s.cancelFunc()
 	}
+	if s.doneCh != nil {
+		select {
+		case <-s.doneCh:
+		default:
+			close(s.doneCh)
+		}
+	}
 	s.mu.Unlock()
 
 	for _, sub := range subs {
@@ -301,6 +319,11 @@ func (s *Service) readLoop(ctx context.Context) {
 		if interaction == nil {
 			continue
 		}
+		trimmed := strings.ToLower(strings.TrimSpace(interaction.NormalizedInput))
+		if trimmed == "exit" || trimmed == "quit" {
+			_ = s.Close()
+			return
+		}
 		fullInt, err := s.CreateInteraction(ctx, interaction.OriginalInput, interaction.SessionID, interaction.Origin, interaction.Modality)
 		if err != nil {
 			s.telemetry.recordDropped()
@@ -308,6 +331,13 @@ func (s *Service) readLoop(ctx context.Context) {
 		}
 		_ = s.HandleInteraction(ctx, fullInt)
 	}
+}
+
+// Done returns a read-only channel that is closed when the World Service closes.
+func (s *Service) Done() <-chan struct{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.doneCh
 }
 
 // HandleInteraction is the primary event entry point for the World service.
@@ -333,6 +363,8 @@ func (s *Service) HandleInteraction(ctx context.Context, interaction *Interactio
 	}
 
 	s.telemetry.recordInput(len(interaction.NormalizedInput))
+
+	devLog("World", "Received input", fmt.Sprintf("%q", interaction.NormalizedInput))
 
 	// Store the pending interaction for async response matching.
 	s.mu.Lock()
@@ -377,6 +409,8 @@ func (s *Service) HandleInteraction(ctx context.Context, interaction *Interactio
 		return fmt.Errorf("world: failed to publish interaction to Workspace: %w", err)
 	}
 
+	devLog("World", "Published TopicPerception")
+
 	return nil
 }
 
@@ -388,6 +422,10 @@ func (s *Service) HandleInteraction(ctx context.Context, interaction *Interactio
 // This handler must be fast and non-blocking per Workspace contract.
 func (s *Service) handleResponseEnvelope(ctx context.Context, env communication.Envelope) error {
 	if s.closed.Load() {
+		return nil
+	}
+
+	if s.waitForRealization.Load() && env.Source != "Presentation.LanguageRealization" {
 		return nil
 	}
 
@@ -413,12 +451,40 @@ func (s *Service) handleResponseEnvelope(ctx context.Context, env communication.
 	latency := time.Since(entry.startTime)
 	interaction := entry.interaction
 
+	if env.Source == "Presentation.LanguageRealization" {
+		devLog("World", "Received realized output")
+	} else {
+		devLog("World", "Received final output")
+	}
+
+	// Resolve the human-readable content from CAS.
+	// Language Realization stores a RealizedOutput JSON blob keyed by PayloadRef.
+	// World must retrieve and decode it so the user sees natural language, not a hash.
+	content := env.PayloadRef // defensive fallback: raw storage ref
+	if raw, retrieveErr := s.storer.Retrieve(ctx, env.PayloadRef); retrieveErr == nil && len(raw) > 0 {
+		// Attempt to decode as RealizedOutput (from Language Realization)
+		var realized struct {
+			RealizedText string `json:"realized_text"`
+		}
+		if jsonErr := json.Unmarshal(raw, &realized); jsonErr == nil && realized.RealizedText != "" {
+			content = realized.RealizedText
+		} else {
+			// Payload is raw text (e.g. from Executive directly), use as-is
+			content = string(raw)
+		}
+	}
+	if strings.HasPrefix(content, "storage://") {
+		if inner, err := s.storer.Retrieve(ctx, content); err == nil && len(inner) > 0 {
+			content = string(inner)
+		}
+	}
+
 	// Construct the Response from the Executive envelope.
 	response, err := NewResponseBuilder().
 		WithInteractionID(interaction.InteractionID).
 		WithSessionID(interaction.SessionID).
 		WithModality(interaction.Modality).
-		WithContent(env.PayloadRef). // World is content-blind; content is the PayloadRef
+		WithContent(content).
 		WithPayloadRef(env.PayloadRef).
 		WithStatus(ResponseStatusSuccess).
 		WithResultStatus(ResultStatusSuccess).
@@ -432,9 +498,11 @@ func (s *Service) handleResponseEnvelope(ctx context.Context, env communication.
 
 	// Deliver response via OutputAdapter. Non-blocking timeout is enforced by caller context.
 	_ = s.output.Send(ctx, response)
+	devLog("World", "Response delivered to console.")
 	s.telemetry.recordResponse(ResponseStatusSuccess, len(response.Content), latency)
 	return nil
 }
+
 
 // CreateInteraction is a helper that builds a validated Interaction from raw adapter input,
 // applying the current WorldPolicyProfile normalization rules and computing all

@@ -45,6 +45,7 @@ func (m *mockInferenceService) ExecuteStream(ctx context.Context, req inference.
 func (m *mockInferenceService) Name() string { return "MockInference" }
 func (m *mockInferenceService) Start() error { return nil }
 func (m *mockInferenceService) Close() error { return nil }
+func (m *mockInferenceService) ClearCache() error { return nil }
 
 type mockWorkspaceSubscription struct {
 	id string

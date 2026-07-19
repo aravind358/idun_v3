@@ -2,11 +2,17 @@
 package inference
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -162,20 +168,33 @@ func (s *Service) Execute(ctx context.Context, req InferenceRequest) (InferenceR
 		return InferenceResult{}, ErrInvalidRequest
 	}
 
-	// Apply SLA timeout budget
-	sla := budgetTimeout(req.Budget)
-	execCtx, cancel := context.WithTimeout(ctx, sla)
+	devLog("Inference", "Request started")
+	devLog("Inference", "Model", req.ModelID)
+
+	// Apply SLA timeout budget or respect existing caller deadline
+	var execCtx context.Context
+	var cancel context.CancelFunc
+	if _, ok := ctx.Deadline(); ok {
+		execCtx, cancel = context.WithCancel(ctx)
+	} else {
+		sla := budgetTimeout(req.Budget)
+		execCtx, cancel = context.WithTimeout(ctx, sla)
+	}
 	defer cancel()
 
 	s.incrementQueueDepth(req.Budget, 1)
 	defer s.incrementQueueDepth(req.Budget, -1)
 
-	// Check content-addressed cache
+	// Check content-addressed cache unless BypassCache is requested or IDUN_BYPASS_INFERENCE_CACHE is set
 	ck := cacheKey(req)
-	if s.store != nil {
+	bypass := req.Hints.BypassCache || os.Getenv("IDUN_BYPASS_INFERENCE_CACHE") == "true"
+	if !bypass && s.store != nil {
 		if cachedOut, err := s.store.Read(ck); err == nil && len(cachedOut) > 0 {
 			atomic.AddInt64(&s.cacheHits, 1)
 			atomic.AddInt64(&s.totalExecutions, 1)
+			devLog("Inference", "Resolved backend", "cache")
+			devLog("Inference", "Response received")
+			devLog("Inference", "Execution time", "0s")
 			return InferenceResult{
 				OutputRef:         string(cachedOut),
 				ModelID:           req.ModelID,
@@ -199,12 +218,22 @@ func (s *Service) Execute(ctx context.Context, req InferenceRequest) (InferenceR
 		return InferenceResult{}, fmt.Errorf("resolve backend: %w", err)
 	}
 
+	devLog("Inference", "Resolved backend", bd.ID)
+
+	if bd.DriverScheme == "ollama" {
+		modelName := bd.DriverConfig["model"]
+		if modelName != "" {
+			devLog("Inference", "Model", modelName)
+		}
+	}
+
 	atomic.AddInt64(&s.activeWorkers, 1)
 	defer atomic.AddInt64(&s.activeWorkers, -1)
 
+	devLog("Inference", "Sending request...")
 	start := time.Now()
 
-	// Execute simulated backend computation on input payload
+	// Execute simulated or physical backend computation on input payload
 	var inputBytes []byte
 	if s.store != nil {
 		inputBytes, _ = s.store.Read(req.InputRef)
@@ -222,6 +251,10 @@ func (s *Service) Execute(ctx context.Context, req InferenceRequest) (InferenceR
 		return InferenceResult{}, ErrInferenceCancelled
 	}
 
+	if bd.DriverScheme == "ollama" {
+		return s.executeOllama(execCtx, req, bd, inputBytes, ck, start)
+	}
+
 	// Generate deterministic output representation
 	outHash := sha256.Sum256(append(inputBytes, []byte(bd.ID)...))
 	outputRef := "storage://inference/output/" + hex.EncodeToString(outHash[:])
@@ -233,6 +266,127 @@ func (s *Service) Execute(ctx context.Context, req InferenceRequest) (InferenceR
 
 	dur := time.Since(start)
 	atomic.AddInt64(&s.totalExecutions, 1)
+
+	devLog("Inference", "Response received")
+	devLog("Inference", "Execution time", fmt.Sprintf("%v", dur))
+
+	if s.log != nil {
+		s.log.Info("Executed inference request",
+			logger.Field{Key: "modelID", Value: req.ModelID},
+			logger.Field{Key: "backendID", Value: bd.ID},
+			logger.Field{Key: "outputRef", Value: outputRef},
+			logger.Field{Key: "duration_ms", Value: dur.Milliseconds()},
+		)
+	}
+
+	return InferenceResult{
+		OutputRef:         outputRef,
+		ModelID:           req.ModelID,
+		BackendID:         bd.ID,
+		ComputeUnits:      1,
+		ExecutionDuration: dur,
+		Cached:            false,
+	}, nil
+}
+
+// executeOllama performs real HTTP POST inference against a local or remote Ollama server.
+func (s *Service) executeOllama(ctx context.Context, req InferenceRequest, bd registry.BackendDescriptor, inputBytes []byte, ck string, start time.Time) (InferenceResult, error) {
+	modelName := bd.DriverConfig["model"]
+	if modelName == "" {
+		atomic.AddInt64(&s.failedExecutions, 1)
+		return InferenceResult{}, fmt.Errorf("%w: missing model configuration in DriverConfig", ErrBackendFailure)
+	}
+
+	baseURL := strings.TrimRight(bd.Endpoint, "/")
+	if baseURL == "" {
+		baseURL = "http://127.0.0.1:11434"
+	}
+	if strings.Contains(baseURL, "localhost") {
+		baseURL = strings.Replace(baseURL, "localhost", "127.0.0.1", 1)
+	}
+	url := baseURL + "/api/generate"
+
+	type ollamaReq struct {
+		Model  string `json:"model"`
+		Prompt string `json:"prompt"`
+		Stream bool   `json:"stream"`
+	}
+	payload := ollamaReq{
+		Model:  modelName,
+		Prompt: string(inputBytes),
+		Stream: false,
+	}
+	devLog("Inference", "Ollama prompt len", fmt.Sprintf("%d", len(inputBytes)))
+	if len(inputBytes) > 200 {
+		devLog("Inference", "Ollama prompt preview", string(inputBytes[:200]))
+	} else {
+		devLog("Inference", "Ollama prompt preview", string(inputBytes))
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		atomic.AddInt64(&s.failedExecutions, 1)
+		return InferenceResult{}, fmt.Errorf("%w: failed to marshal request: %v", ErrInvalidRequest, err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payloadBytes))
+	if err != nil {
+		atomic.AddInt64(&s.failedExecutions, 1)
+		return InferenceResult{}, fmt.Errorf("%w: failed to create http request: %v", ErrBackendFailure, err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		atomic.AddInt64(&s.failedExecutions, 1)
+		devLog("Inference", "Ollama HTTP error", fmt.Sprintf("%v", err))
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+			return InferenceResult{}, ErrInferenceTimeout
+		}
+		if errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled) {
+			return InferenceResult{}, ErrInferenceCancelled
+		}
+		return InferenceResult{}, fmt.Errorf("%w: ollama request failed: %v", ErrBackendFailure, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		atomic.AddInt64(&s.failedExecutions, 1)
+		devLog("Inference", "Ollama non-200 status", fmt.Sprintf("%d: %s", resp.StatusCode, string(bodyBytes)))
+		return InferenceResult{}, fmt.Errorf("%w: ollama returned status %d: %s", ErrBackendFailure, resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
+	}
+
+	type ollamaResp struct {
+		Model    string `json:"model"`
+		Response string `json:"response"`
+		Done     bool   `json:"done"`
+		Error    string `json:"error"`
+	}
+	var oResp ollamaResp
+	if err := json.NewDecoder(resp.Body).Decode(&oResp); err != nil {
+		atomic.AddInt64(&s.failedExecutions, 1)
+		devLog("Inference", "Ollama decode error", fmt.Sprintf("%v", err))
+		return InferenceResult{}, fmt.Errorf("%w: failed to decode ollama response: %v", ErrBackendFailure, err)
+	}
+	if oResp.Error != "" {
+		atomic.AddInt64(&s.failedExecutions, 1)
+		devLog("Inference", "Ollama response error", oResp.Error)
+		return InferenceResult{}, fmt.Errorf("%w: ollama model error: %s", ErrBackendFailure, oResp.Error)
+	}
+
+	outHash := sha256.Sum256([]byte(oResp.Response))
+	outputRef := "storage://inference/output/" + hex.EncodeToString(outHash[:])
+
+	if s.store != nil {
+		_ = s.store.Write(outputRef, []byte(oResp.Response))
+		_ = s.store.Write(ck, []byte(outputRef))
+	}
+
+	dur := time.Since(start)
+	atomic.AddInt64(&s.totalExecutions, 1)
+
+	devLog("Inference", "Response received")
+	devLog("Inference", "Execution time", fmt.Sprintf("%v", dur))
 
 	if s.log != nil {
 		s.log.Info("Executed inference request",
@@ -282,6 +436,24 @@ func (s *Service) GetTelemetry() TelemetrySnapshot {
 		FailedExecutions: atomic.LoadInt64(&s.failedExecutions),
 		CacheHits:        atomic.LoadInt64(&s.cacheHits),
 	}
+}
+
+// ClearCache purges all cached inference results stored under prefix "inference/cache/".
+func (s *Service) ClearCache() error {
+	s.mu.RLock()
+	st := s.store
+	s.mu.RUnlock()
+	if st == nil {
+		return nil
+	}
+	keys, err := st.List("inference/cache/")
+	if err != nil && !errors.Is(err, storage.ErrNotFound) {
+		return err
+	}
+	for _, key := range keys {
+		_ = st.Delete(key)
+	}
+	return nil
 }
 
 // Ensure Service implements InferenceService and TelemetryProvider.

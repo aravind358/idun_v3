@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"sync/atomic"
 	"time"
+
+	"idun/intelligence/reasoning"
 )
 
 // SchemaVersion2_0_0 is the frozen canonical schema version string for Planning artifacts.
@@ -413,6 +415,15 @@ type DependencyGraphSnapshot struct {
 	Edges []DependencyEdge  `json:"edges"`
 }
 
+// SpecialistContribution holds the isolated output contributed by a single PlanningSpecialist.
+type SpecialistContribution struct {
+	SpecialistName string           `json:"specialist_name"`
+	StepLog        *PlanningStepLog `json:"step_log,omitempty"`
+	Subgoals       []Subgoal        `json:"subgoals"`
+	Edges          []DependencyEdge `json:"edges"`
+	Error          error            `json:"error,omitempty"`
+}
+
 // ============================================================================
 // Core Output Schemas: Plan & PlanningTrace
 // ============================================================================
@@ -427,6 +438,8 @@ type Plan struct {
 	PlanFingerprint         string                   `json:"plan_fingerprint"` // Hash over structural content ONLY
 	SourceTier              string                   `json:"source_tier"`
 	Domain                  string                   `json:"domain"`
+	PlannerID               string                   `json:"planner_id,omitempty"`
+	PlannerType             string                   `json:"planner_type,omitempty"`
 	Goal                    string                   `json:"goal"`
 	Subgoals                []Subgoal                `json:"subgoals"`
 	Dependencies            []DependencyEdge         `json:"dependencies"`
@@ -572,17 +585,18 @@ func (t *PlanningTrace) Validate() error {
 
 // PlanningRequest encapsulates the input arguments passed to PlanningService.
 type PlanningRequest struct {
-	RequestID         string            `json:"request_id"`
-	Goal              string            `json:"goal"`
-	Domain            string            `json:"domain"` // Open string tag (default: "General")
-	ContextRef        string            `json:"context_ref"` // URI to upstream SemanticFrame / ReasoningResult
-	HardConstraints   []string          `json:"hard_constraints"`
-	SoftConstraints   []string          `json:"soft_constraints"`
-	TargetDepth       PlanningDepth     `json:"target_depth"`
-	MaxExecutionBudget time.Duration    `json:"max_execution_budget"`
-	MinConfidenceFloor float64          `json:"min_confidence_floor"`
-	PriorPlanRef      string            `json:"prior_plan_ref"` // Optional URI for plan revision
-	Metadata          map[string]string `json:"metadata"`
+	RequestID          string                  `json:"request_id"`
+	Goal               string                  `json:"goal"`
+	ResolvedGoal       *reasoning.SemanticGoal `json:"resolved_goal,omitempty"`
+	Domain             string                  `json:"domain"` // Open string tag (default: "General")
+	ContextRef         string                  `json:"context_ref"` // URI to upstream SemanticFrame / ReasoningResult
+	HardConstraints    []string                `json:"hard_constraints"`
+	SoftConstraints    []string                `json:"soft_constraints"`
+	TargetDepth        PlanningDepth           `json:"target_depth"`
+	MaxExecutionBudget time.Duration           `json:"max_execution_budget"`
+	MinConfidenceFloor float64                 `json:"min_confidence_floor"`
+	PriorPlanRef       string                  `json:"prior_plan_ref"` // Optional URI for plan revision
+	Metadata           map[string]string       `json:"metadata"`
 }
 
 // Validate verifies inputs on PlanningRequest.

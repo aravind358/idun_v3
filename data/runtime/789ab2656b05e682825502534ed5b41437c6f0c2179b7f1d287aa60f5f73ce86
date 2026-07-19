@@ -1,0 +1,1 @@
+{"FrameVersion":"2.0","EnvelopeID":"fa4867231b864adc6d3061dab8492a39","Status":"UNAMBIGUOUS","PrimaryHypothesis":{"Intent":"query_identity","CalibratedConfidence":0.98,"SourceLayer":"Understanding.ReflexiveGrammar","Slots":[]},"AmbiguitySet":[],"ProcessedDurationMs":0}

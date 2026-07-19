@@ -119,6 +119,36 @@ func (b *ReasoningResultBuilder) WithCompilationCandidate(cc *CompilationCandida
 	return b
 }
 
+// WithResolvedGoal attaches the machine-readable desired outcome deduced by Reasoning.
+func (b *ReasoningResultBuilder) WithResolvedGoal(g *SemanticGoal) *ReasoningResultBuilder {
+	if b.err != nil {
+		return b
+	}
+	if g != nil {
+		if err := g.Validate(); err != nil {
+			b.err = err
+			return b
+		}
+		b.result.ResolvedGoal = g.Clone()
+	}
+	return b
+}
+
+// WithPresentationDirectives attaches presentation metadata specifying how an eventual response may be presented.
+func (b *ReasoningResultBuilder) WithPresentationDirectives(p *PresentationDirectives) *ReasoningResultBuilder {
+	if b.err != nil {
+		return b
+	}
+	if p != nil {
+		if err := p.Validate(); err != nil {
+			b.err = err
+			return b
+		}
+		b.result.PresentationDirectives = p.Clone()
+	}
+	return b
+}
+
 // WithStrategyTelemetry attaches diagnostic execution metadata.
 func (b *ReasoningResultBuilder) WithStrategyTelemetry(st StrategyTelemetry) *ReasoningResultBuilder {
 	if b.err != nil {
