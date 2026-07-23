@@ -7,7 +7,7 @@ import (
 )
 
 func TestPlanValidation_Valid(t *testing.T) {
-	plan := &Plan{
+	plan := &CandidatePlan{
 		PlanID:             "plan-101",
 		SchemaVersion:      SchemaVersion2_0_0,
 		CreatedAt:          time.Now().UTC(),
@@ -32,7 +32,7 @@ func TestPlanValidation_Valid(t *testing.T) {
 			ConstraintConfidence:   0.90,
 			OverallConfidence:      0.80, // min is 0.80
 		},
-		Status: PlanStatusComplete,
+		PlanStatus: PlanStatusComplete,
 		ReplayMetadata: ReplayMetadata{
 			StrategySnapshotID: "snap-200",
 			ReplayFidelity:     "EXACT",
@@ -53,7 +53,7 @@ func TestPlanValidation_Valid(t *testing.T) {
 }
 
 func TestPlanValidation_InvalidSchema(t *testing.T) {
-	plan := &Plan{
+	plan := &CandidatePlan{
 		PlanID:             "plan-101",
 		SchemaVersion:      "1.0.0-OLD",
 		StrategySnapshotID: "snap-200",
@@ -219,3 +219,4 @@ func TestSupportingStructValidations(t *testing.T) {
 		t.Error("expected error for negative resource quantity")
 	}
 }
+

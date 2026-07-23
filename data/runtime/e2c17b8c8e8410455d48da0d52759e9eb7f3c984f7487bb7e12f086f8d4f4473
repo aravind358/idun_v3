@@ -1,0 +1,1 @@
+{"FrameVersion":"2.0","EnvelopeID":"56a5cf37b8a4700bb8b2e85b5f1a346d","Status":"UNAMBIGUOUS","PrimaryHypothesis":{"Intent":"query_weather","CalibratedConfidence":0.95,"SourceLayer":"Understanding.ReflexiveGrammar","Slots":[{"Name":"city","Value":"tokyo","GroundingID":"slot-city","Confidence":0.95}]},"AmbiguitySet":[],"ProcessedDurationMs":0}

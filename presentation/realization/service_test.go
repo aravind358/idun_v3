@@ -120,7 +120,7 @@ func TestBuildRealizationPrompt(t *testing.T) {
 		Language:         "en-US",
 	}
 
-	prompt := realization.BuildRealizationPrompt(resp)
+	prompt := realization.BuildRealizationPromptFromLegacy(resp)
 	if !strings.Contains(prompt, "Action: Deploy to staging.") {
 		t.Fatalf("prompt missing content")
 	}

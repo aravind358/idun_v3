@@ -6,7 +6,7 @@
 // analysis, resource estimation, and bounded contingency generation.
 //
 // Planning maintains strict single-responsibility boundaries: it constructs
-// immutable, versioned Plan objects paired with comprehensive PlanningTrace
+// immutable, versioned CandidatePlan objects paired with comprehensive PlanningTrace
 // diagnostic artifacts for Decision and Reflection, but never interprets raw
 // sensory inputs (`Understanding`), derives formal logical proofs (`Reasoning`),
 // commits to action execution (`Decision`), performs post-hoc evaluations (`Reflection`),
@@ -34,7 +34,7 @@ const SchemaVersion2_0 = "2.0"
 // Core Status and Termination Enums
 // ============================================================================
 
-// PlanStatus represents the discrete operational status of a constructed Plan.
+// PlanStatus represents the discrete operational status of a constructed CandidatePlan.
 type PlanStatus string
 
 const (
@@ -68,7 +68,7 @@ const (
 )
 
 // PlanningTerminationReason records the factual reason why planning execution terminated.
-// This enum lives exclusively within PlanningTrace and never inside Plan.
+// This enum lives exclusively within PlanningTrace and never inside CandidatePlan.
 type PlanningTerminationReason string
 
 const (
@@ -102,7 +102,7 @@ const (
 )
 
 // ============================================================================
-// Supporting Plan Structures
+// Supporting CandidatePlan Structures
 // ============================================================================
 
 // Subgoal represents a hierarchical node within the decomposition tree.
@@ -425,57 +425,128 @@ type SpecialistContribution struct {
 }
 
 // ============================================================================
-// Core Output Schemas: Plan & PlanningTrace
+// Core Output Schemas: CandidatePlan & PlanningTrace
 // ============================================================================
 
-// Plan is the lean operational payload consumed by Decision and Executive.
-// It excludes heavy diagnostic trees and process statistics.
-type Plan struct {
+// ExecutionStep defines a scheduled, executable unit within a CandidatePlan.
+type ExecutionStep struct {
+	StepID          string            `json:"step_id"`
+	SubgoalID       string            `json:"subgoal_id"`
+	CapabilityReqID string            `json:"capability_req_id"`
+	Action          string            `json:"action"`
+	Parameters      map[string]string `json:"parameters"`
+	DependsOn       []string          `json:"depends_on"`
+}
+
+// Validate verifies structural soundness.
+func (e *ExecutionStep) Validate() error {
+	if e.StepID == "" {
+		return errors.New("execution step missing StepID")
+	}
+	return nil
+}
+
+// ParallelGroup explicitly defines a set of step IDs that can execute concurrently.
+type ParallelGroup struct {
+	GroupID string   `json:"group_id"`
+	Steps   []string `json:"steps"`
+}
+
+// CapabilityRequirement defines an abstract execution need for the Capability Resolver.
+type CapabilityRequirement struct {
+	RequirementID   string            `json:"requirement_id"`
+	CapabilityName  string            `json:"capability_name"`
+	RequiredVersion string            `json:"required_version,omitempty"`
+	Parameters      map[string]string `json:"parameters,omitempty"`
+}
+
+// ValidationTrace records the output of the internal CandidatePlan validation firewall.
+type ValidationTrace struct {
+	DependencyValidation string `json:"dependency_validation"`
+	ResourceValidation   string `json:"resource_validation"`
+	CapabilityValidation string `json:"capability_validation"`
+	ExecutionValidation  string `json:"execution_validation"`
+	ConstraintValidation string `json:"constraint_validation"`
+}
+
+// LineageRecord captures the upstream references to preserve cognitive tracking.
+type LineageRecord struct {
+	ReasoningEpisodeID string `json:"reasoning_episode_id"`
+	SourceGoalID       string `json:"source_goal_id"`
+	SemanticFrameID    string `json:"semantic_frame_id"`
+	ConversationID     string `json:"conversation_id"`
+}
+
+// CandidatePlan is the authoritative, version-invariant artifact produced by Planning and consumed by Decision.
+type CandidatePlan struct {
 	PlanID                  string                   `json:"plan_id"`
+	RootPlanID              string                   `json:"root_plan_id,omitempty"`
+	GoalReference           string                   `json:"goal_reference,omitempty"`
+	GoalGraphReference      string                   `json:"goal_graph_reference,omitempty"`
+	PlanType                string                   `json:"plan_type"` // e.g. SEQUENTIAL, PARALLEL, HYBRID, INTERACTION
+	PlanPriority            int                      `json:"plan_priority"`
+	PlanStatus              PlanStatus               `json:"plan_status"` // e.g. DRAFT, VALIDATED, INFEASIBLE
+	PlanConfidence          float64                  `json:"plan_confidence"`
+	PlanCompleteness        float64                  `json:"plan_completeness"`
 	SchemaVersion           string                   `json:"schema_version"`
 	CreatedAt               time.Time                `json:"created_at"`
 	StrategySnapshotID      string                   `json:"strategy_snapshot_id"`
-	PlanFingerprint         string                   `json:"plan_fingerprint"` // Hash over structural content ONLY
+	PlanFingerprint         string                   `json:"plan_fingerprint"`
 	SourceTier              string                   `json:"source_tier"`
 	Domain                  string                   `json:"domain"`
 	PlannerID               string                   `json:"planner_id,omitempty"`
 	PlannerType             string                   `json:"planner_type,omitempty"`
 	Goal                    string                   `json:"goal"`
+	ExecutionSteps          []ExecutionStep          `json:"execution_steps,omitempty"`
+	SubPlans                []*CandidatePlan         `json:"sub_plans,omitempty"`
 	Subgoals                []Subgoal                `json:"subgoals"`
 	Dependencies            []DependencyEdge         `json:"dependencies"`
+	ParallelGroups          []ParallelGroup          `json:"parallel_groups,omitempty"`
 	Preconditions           []string                 `json:"preconditions"`
 	Postconditions          []string                 `json:"postconditions"`
 	EstimatedCost           float64                  `json:"estimated_cost"`
 	EstimatedDuration       time.Duration            `json:"estimated_duration"`
+	EstimatedMemoryMB       float64                  `json:"estimated_memory_mb,omitempty"`
+	EstimatedEnergy         float64                  `json:"estimated_energy,omitempty"`
 	RequiredResources       []ResourceRequirement    `json:"required_resources"`
+	CapabilityRequirements  []CapabilityRequirement  `json:"capability_requirements,omitempty"`
 	RollbackStrategies      []RollbackStrategy       `json:"rollback_strategies"`
+	FailureRecoveryPlan     string                   `json:"failure_recovery_plan,omitempty"` // Reference to PlanID
+	RollbackPlan            string                   `json:"rollback_plan,omitempty"`         // Reference to PlanID
 	AlternativeBranches     []AlternativeBranch      `json:"alternative_branches"`
+	OptimizationScore       float64                  `json:"optimization_score"`
 	ConfidenceProfile       ConfidenceProfile        `json:"confidence_profile"`
-	Status                  PlanStatus               `json:"status"`
 	InformationRequirements []InformationRequirement `json:"information_requirements"`
+	DecisionHints           []string                 `json:"decision_hints,omitempty"`
+	ExecutionHints          []string                 `json:"execution_hints,omitempty"`
+	ValidationStatus        string                   `json:"validation_status,omitempty"` // e.g., PASSED, FAILED, WARNING
+	ValidationTrace         *ValidationTrace         `json:"validation_trace,omitempty"`
+	Lineage                 *LineageRecord           `json:"lineage,omitempty"`
 	ReplayMetadata          ReplayMetadata           `json:"replay_metadata"`
 	TraceID                 string                   `json:"trace_id"`
+	ResolvedGoal            *reasoning.SemanticGoal  `json:"resolved_goal,omitempty"`
+	PresentationDirectives  *reasoning.PresentationDirectives `json:"presentation_directives,omitempty"`
 }
 
-// Validate executes strict structural checks and schema firewall enforcement on Plan.
-func (p *Plan) Validate() error {
+// Validate executes strict structural checks and schema firewall enforcement on CandidatePlan.
+func (p *CandidatePlan) Validate() error {
 	if p.PlanID == "" {
-		return errors.New("Plan missing PlanID")
+		return errors.New("CandidatePlan missing PlanID")
 	}
 	if p.SchemaVersion != SchemaVersion2_0_0 && p.SchemaVersion != SchemaVersion2_0 {
-		return fmt.Errorf("invalid Plan SchemaVersion: %s (must be %s or %s)", p.SchemaVersion, SchemaVersion2_0_0, SchemaVersion2_0)
+		return fmt.Errorf("invalid CandidatePlan SchemaVersion: %s (must be %s or %s)", p.SchemaVersion, SchemaVersion2_0_0, SchemaVersion2_0)
 	}
 	if p.StrategySnapshotID == "" {
-		return errors.New("Plan missing StrategySnapshotID")
+		return errors.New("CandidatePlan missing StrategySnapshotID")
 	}
 	if p.Goal == "" {
-		return errors.New("Plan missing Goal")
+		return errors.New("CandidatePlan missing Goal")
 	}
 	if p.TraceID == "" {
-		return errors.New("Plan missing linked TraceID")
+		return errors.New("CandidatePlan missing linked TraceID")
 	}
 	if p.EstimatedCost < 0 {
-		return fmt.Errorf("Plan has negative EstimatedCost: %f", p.EstimatedCost)
+		return fmt.Errorf("CandidatePlan has negative EstimatedCost: %f", p.EstimatedCost)
 	}
 	for i, sg := range p.Subgoals {
 		if err := sg.Validate(); err != nil {
@@ -508,10 +579,20 @@ func (p *Plan) Validate() error {
 		}
 	}
 	if err := p.ConfidenceProfile.Validate(); err != nil {
-		return fmt.Errorf("Plan ConfidenceProfile invalid: %w", err)
+		return fmt.Errorf("CandidatePlan ConfidenceProfile invalid: %w", err)
 	}
 	if err := p.ReplayMetadata.Validate(); err != nil {
-		return fmt.Errorf("Plan ReplayMetadata invalid: %w", err)
+		return fmt.Errorf("CandidatePlan ReplayMetadata invalid: %w", err)
+	}
+	if p.ResolvedGoal != nil {
+		if err := p.ResolvedGoal.Validate(); err != nil {
+			return fmt.Errorf("CandidatePlan ResolvedGoal invalid: %w", err)
+		}
+	}
+	if p.PresentationDirectives != nil {
+		if err := p.PresentationDirectives.Validate(); err != nil {
+			return fmt.Errorf("CandidatePlan PresentationDirectives invalid: %w", err)
+		}
 	}
 	return nil
 }
@@ -597,6 +678,7 @@ type PlanningRequest struct {
 	MinConfidenceFloor float64                 `json:"min_confidence_floor"`
 	PriorPlanRef       string                  `json:"prior_plan_ref"` // Optional URI for plan revision
 	Metadata           map[string]string       `json:"metadata"`
+	PresentationDirectives *reasoning.PresentationDirectives `json:"presentation_directives,omitempty"`
 }
 
 // Validate verifies inputs on PlanningRequest.
@@ -617,7 +699,7 @@ func (r *PlanningRequest) Validate() error {
 type PlanningResult struct {
 	ResultID          string            `json:"result_id"`
 	RequestID         string            `json:"request_id"`
-	Plans             []*Plan           `json:"plans"`
+	Plans             []*CandidatePlan  `json:"plans"`
 	Traces            []*PlanningTrace  `json:"traces"`
 	PrimaryPlanID            string               `json:"primary_plan_id"`
 	ResultStatus             PlanningResultStatus `json:"result_status"`
@@ -633,11 +715,11 @@ func (r *PlanningResult) Validate() error {
 		return errors.New("PlanningResult missing ResultID or RequestID")
 	}
 	if len(r.Plans) == 0 {
-		return errors.New("PlanningResult must contain at least one Plan")
+		return errors.New("PlanningResult must contain at least one CandidatePlan")
 	}
 	for i, p := range r.Plans {
 		if p == nil {
-			return fmt.Errorf("PlanningResult contains nil Plan at index %d", i)
+			return fmt.Errorf("PlanningResult contains nil CandidatePlan at index %d", i)
 		}
 		if err := p.Validate(); err != nil {
 			return fmt.Errorf("plan[%d] validation failed: %w", i, err)
@@ -839,3 +921,4 @@ func (s *PlanningStrategySnapshot) SwapProfile(newProfile *PlanningPolicyProfile
 	s.activeProfile.Store(newProfile)
 	return nil
 }
+

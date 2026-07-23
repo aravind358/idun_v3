@@ -143,6 +143,7 @@ type reasoningResultPayload struct {
 		Conclusion string `json:"conclusion"`
 	} `json:"primary_hypothesis"`
 	ResolvedGoal *reasoning.SemanticGoal `json:"resolved_goal"`
+	PresentationDirectives *reasoning.PresentationDirectives `json:"presentation_directives,omitempty"`
 }
 
 // handleActiveGoal receives active goal envelopes from the Workspace and initiates planning.
@@ -188,8 +189,10 @@ func (s *DefaultPlanningService) handleActiveGoal(ctx context.Context, env commu
 		TargetDepth:        DepthTactical,
 		MaxExecutionBudget: 100 * time.Millisecond,
 		MinConfidenceFloor: 0.70,
+		PresentationDirectives: result.PresentationDirectives,
 		Metadata: map[string]string{
 			"parent_ref": parentID,
+			"raw_confidence": fmt.Sprintf("%f", env.RawConfidence),
 		},
 	}
 
@@ -394,7 +397,32 @@ func (s *DefaultPlanningService) executePlanningEpisode(
 	graph := &DependencyGraphSnapshot{
 		Nodes: make(map[string]string),
 	}
-	contribs, stepLogs, specErr := s.registry.ExecuteSpecialists(ctx, req, graph, profile, cache)
+	var contribs []SpecialistContribution
+	var stepLogs []PlanningStepLog
+	var specErr error
+
+	// --- Phase 2C Clarification Pipeline Integration ---
+	if req.ResolvedGoal != nil && req.ResolvedGoal.Kind == reasoning.GoalKindClarification {
+		// Clarification Goals follow the exact same cognitive pipeline.
+		// Planning recognizes GoalType = Clarification and generates a minimal interaction plan.
+		interactionSubgoal := Subgoal{
+			SubgoalID:    fmt.Sprintf("clarify-%s", req.RequestID),
+			Title:        "Ask Clarification Question",
+			Description:  "Interact with user to resolve missing information or ambiguity",
+			AssignedType: "INTERACTION",
+			Dependencies: []string{},
+			Parameters: map[string]string{
+				"target": req.ResolvedGoal.Target,
+				"intent": req.ResolvedGoal.Intent,
+			},
+		}
+		contribs = append(contribs, SpecialistContribution{
+			SpecialistName: "ClarificationSpecialist",
+			Subgoals:       []Subgoal{interactionSubgoal},
+		})
+	} else {
+		contribs, stepLogs, specErr = s.registry.ExecuteSpecialists(ctx, req, graph, profile, cache)
+	}
 
 	totalSubgoals := 0
 	for _, c := range contribs {
@@ -429,7 +457,7 @@ func (s *DefaultPlanningService) executePlanningEpisode(
 		resultStatus = ResultNoPlans
 	}
 
-	// Stage 4: Assemble Plan estimates and ConfidenceProfile
+	// Stage 4: Assemble CandidatePlan estimates and ConfidenceProfile
 	estCost := float64(totalSubgoals) * 2.5
 	estDuration := time.Duration(totalSubgoals) * 10 * time.Minute
 	if totalSubgoals == 0 {
@@ -438,7 +466,17 @@ func (s *DefaultPlanningService) executePlanningEpisode(
 	}
 
 	baseConf := 0.90
-	if planStatus != PlanStatusComplete {
+	if req.ResolvedGoal != nil && req.ResolvedGoal.Kind == reasoning.GoalKindCommunicative && totalSubgoals == 0 {
+		var envConf float64
+		if confStr, ok := req.Metadata["raw_confidence"]; ok {
+			fmt.Sscanf(confStr, "%f", &envConf)
+		}
+		if envConf > req.MinConfidenceFloor {
+			baseConf = envConf
+		} else {
+			baseConf = req.MinConfidenceFloor
+		}
+	} else if planStatus != PlanStatusComplete {
 		baseConf = 0.40
 	}
 	cp := ConfidenceProfile{
@@ -468,7 +506,7 @@ func (s *DefaultPlanningService) executePlanningEpisode(
 	traceSeq := atomic.AddUint64(&s.seqCounter, 1)
 	traceID := fmt.Sprintf("trace-%d-%d", time.Now().UnixNano(), traceSeq)
 
-	var resPlans []*Plan
+	var resPlans []*CandidatePlan
 	if totalSubgoals == 0 {
 		seq := atomic.AddUint64(&s.seqCounter, 1)
 		planID := fmt.Sprintf("plan-%d-%d", time.Now().UnixNano(), seq)
@@ -476,6 +514,7 @@ func (s *DefaultPlanningService) executePlanningEpisode(
 			WithIdentity(planID, snapshot.SnapshotID, traceID).
 			WithGoalAndDomain(req.Goal, req.Domain, string(depth)).
 			WithResolvedGoal(req.ResolvedGoal).
+			WithPresentationDirectives(req.PresentationDirectives).
 			WithEstimates(0, 0, nil).
 			WithConfidenceProfile(cp).
 			WithStatus(planStatus, nil).
@@ -514,6 +553,7 @@ func (s *DefaultPlanningService) executePlanningEpisode(
 				WithGoalAndDomain(req.Goal, req.Domain, string(depth)).
 				WithPlannerIdentity(contrib.SpecialistName, resolvePlannerType(contrib.SpecialistName)).
 				WithResolvedGoal(req.ResolvedGoal).
+				WithPresentationDirectives(req.PresentationDirectives).
 				WithEstimates(cEstCost, cEstDuration, nil).
 				WithConfidenceProfile(cp).
 				WithStatus(planStatus, nil).
@@ -706,16 +746,13 @@ func (s *DefaultPlanningService) executePlanningEpisode(
 		return nil, fmt.Errorf("firewall stage 8 result validation failed: %w", err)
 	}
 
-	devLog("Planning", "Plan approved")
+	devLog("Planning", "CandidatePlan approved")
 
 	// Publish to Global Workspace if configured and depth warrants broadcast
 	if s.publisher != nil && s.storer != nil && ShouldPublishToWorkspace(depth) {
 		var parentID string
 		if req != nil && req.Metadata != nil {
 			parentID = req.Metadata["parent_ref"]
-		}
-		for _, p := range res.Plans {
-			_, _ = PublishPlan(ctx, p, s.storer, s.publisher, parentID)
 		}
 		_, _ = PublishPlanningTrace(ctx, trace, s.storer, s.publisher, parentID)
 		_, _ = PublishPlanningResult(ctx, res, s.storer, s.publisher, parentID)
@@ -724,3 +761,4 @@ func (s *DefaultPlanningService) executePlanningEpisode(
 
 	return res, nil
 }
+

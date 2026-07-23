@@ -1,27 +1,67 @@
 package realization
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
 
-const systemInstruction = `You are IDUN's surface realization presentation layer.
-Your ONLY job is to convert the approved response content into natural, clear, fluent human language.
+	"idun/boundary"
+)
 
-STRICT CONSTITUTIONAL RULES:
-1. PRESERVE MEANING & FACTS: You MUST NOT invent, add, remove, or modify any facts, numbers, or decisions.
-2. NO COGNITION: You MUST NOT reason, plan, evaluate alternatives, or correct IDUN's decision.
-3. NO INDEPENDENT ANSWERS: Do not answer external questions; only express the exact content provided below.
-4. SURFACE POLISH ONLY: Your only task is improving grammar, readability, sentence flow, and matching the requested tone.`
+const systemInstruction = `You are IDUN, an intelligent AI assistant communicating directly with the user.
+Your task is to convert the approved response content or internal goal summary into natural, direct, conversational human speech speaking as IDUN.
 
-// BuildRealizationPrompt constructs the exact string submitted to InferenceService.
-func BuildRealizationPrompt(resp ExecutionResponse) string {
-	tone := resp.Tone
-	if tone == "" {
-		tone = ToneProfessional
+STRICT CONSTITUTIONAL & REALIZATION RULES:
+1. SPEAK DIRECTLY AS IDUN: Speak in the first person ("I am IDUN...", "Hello!", "I am functioning..."). Never refer to IDUN in the third person and never describe internal processes.
+2. PRESERVE FACTS & MEANING: You MUST NOT invent, add, or modify any facts, numbers, or decisions. Express only the factual meaning provided.
+3. NO INTERNAL TERMINOLOGY OR COGNITION LEAKAGE: NEVER mention or output internal system phrases such as "symbolic conclusion", "IDUN's analysis", "derived conclusion", "intent", "slots", "hypothesis", "HTN", "plan", or "approved content". Speak naturally to the user.
+4. HANDLE COMMUNICATIVE INTENTS NATURALLY:
+   - For greetings (e.g., greet_user or hello): respond with a warm, natural greeting (e.g., "Hello! How can I assist you today?").
+   - For identity inquiries (e.g., query_identity or who are you): state clearly and directly: "I am IDUN, your personal AI assistant designed to help you with cognitive tasks and problem-solving."
+   - For status/wellbeing checks (e.g., query_wellbeing or how are you): respond clearly: "I am functioning optimally and ready to help you!"
+   - For farewells (e.g., farewell_user or bye): respond politely (e.g., "Goodbye! Have a great day!").
+   - For all other factual answers, explanations, or dialogue: present the information clearly, fluently, and conversationally matching the target tone without meta-commentary.`
+
+// BuildRealizationPrompt constructs the exact string submitted to InferenceService from a boundary CommunicationMessage.
+func BuildRealizationPrompt(msg *boundary.CommunicationMessage) string {
+	if msg == nil {
+		return ""
 	}
-	lang := resp.Language
+	tone := msg.Tone
+	if tone == "" {
+		tone = string(ToneProfessional)
+	}
+	lang := msg.Language
 	if lang == "" {
 		lang = "en-US"
 	}
 
-	return fmt.Sprintf("%s\n\n[Target Tone]: %s\n[Target Language]: %s\n\n[Approved Content to Realize]:\n%s\n\n[Realized Natural Output]:",
-		systemInstruction, tone, lang, resp.FinalizedContent)
+	content := msg.Meaning
+	if content == "" {
+		content = msg.Goal
+	}
+
+
+	intent := msg.Intent
+	intentSection := ""
+	if intent != "" && strings.ToLower(intent) != "inform" {
+		intentSection = fmt.Sprintf("\n[Communicative Intent]: %s", intent)
+	}
+
+	slotsSection := ""
+	if len(msg.Slots) > 0 {
+		var parts []string
+		for _, s := range msg.Slots {
+			parts = append(parts, fmt.Sprintf("- %s: %s", s.Name, s.Value))
+		}
+		slotsSection = fmt.Sprintf("\n[Semantic Arguments]:\n%s", strings.Join(parts, "\n"))
+	}
+
+	return fmt.Sprintf("%s\n\n[Target Tone]: %s\n[Target Language]: %s%s%s\n\n[Approved Content to Realize]:\n%s\n\n[Realized Natural Output]:",
+		systemInstruction, tone, lang, intentSection, slotsSection, content)
 }
+
+// BuildRealizationPromptFromLegacy constructs the realization prompt from a legacy ExecutionResponse.
+func BuildRealizationPromptFromLegacy(resp ExecutionResponse) string {
+	return BuildRealizationPrompt(resp.ToCommunicationMessage())
+}
+

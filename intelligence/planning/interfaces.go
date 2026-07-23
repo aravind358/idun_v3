@@ -64,12 +64,35 @@ type PlanningSpecialist interface {
 // PlanFingerprinter computes canonical content-addressed hashes over structural plan data,
 // explicitly excluding estimates and numerical metrics to guarantee deduplication accuracy.
 type PlanFingerprinter interface {
-	// ComputeFingerprint returns the deterministic SHA-256 hex digest for the Plan.
-	ComputeFingerprint(plan *Plan) (string, error)
+	// ComputeFingerprint returns the deterministic SHA-256 hex digest for the CandidatePlan.
+	ComputeFingerprint(plan *CandidatePlan) (string, error)
 }
 
 // StrategyProvider defines lock-free access to the active PlanningStrategySnapshot.
 type StrategyProvider interface {
 	// ActiveSnapshot returns the currently active strategy snapshot.
 	ActiveSnapshot() *PlanningStrategySnapshot
+}
+
+// ============================================================================
+// Phase 2D Capability Resolution Interface
+// ============================================================================
+
+// ExecutionResource defines the abstract interface Planning receives from the Capability Framework.
+// It completely hides whether the capability is native, a learned skill, cloud-based, or remote.
+type ExecutionResource struct {
+	ResourceURI    string            `json:"resource_uri"`
+	CapabilityName string            `json:"capability_name"`
+	Type           string            `json:"type"` // e.g., "NATIVE", "SKILL", "CLOUD", "REMOTE"
+	CostEstimate   float64           `json:"cost_estimate"`
+	LatencyMs      int               `json:"latency_ms"`
+	IsAvailable    bool              `json:"is_available"`
+}
+
+// CapabilityResolver defines the architectural gateway between Planning and the Capability Framework.
+// Planning requests capabilities; the resolver determines HOW they are satisfied.
+type CapabilityResolver interface {
+	// ResolveCapability queries the capability (and optionally skill) registries to find the best
+	// execution resource satisfying the requirement.
+	ResolveCapability(ctx context.Context, req CapabilityRequirement) (*ExecutionResource, error)
 }

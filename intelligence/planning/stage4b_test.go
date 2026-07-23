@@ -87,7 +87,7 @@ func TestStage4B_Builders_Compatibility(t *testing.T) {
 		t.Fatalf("PlanBuilder failed with WithResolvedGoal: %v", err)
 	}
 	if plan.Goal != "Test Goal" || plan.Domain != "Dialogue" {
-		t.Errorf("unexpected built Plan fields: %+v", plan)
+		t.Errorf("unexpected built CandidatePlan fields: %+v", plan)
 	}
 }
 
@@ -211,8 +211,15 @@ func TestStage4B_Service_ActiveGoals_Transport(t *testing.T) {
 		t.Fatalf("expected candidate plan envelope to be published")
 	}
 
-	publishedEnv := pub.envs[0]
-	if publishedEnv.Topic != communication.TopicCandidatePlans {
-		t.Errorf("expected topic candidate-plans, got %s", publishedEnv.Topic)
+	foundCandidatePlan := false
+	for _, publishedEnv := range pub.envs {
+		if publishedEnv.Topic == communication.TopicCandidatePlans {
+			foundCandidatePlan = true
+			break
+		}
+	}
+	if !foundCandidatePlan {
+		t.Errorf("expected topic candidate-plans to be published")
 	}
 }
+

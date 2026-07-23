@@ -135,7 +135,7 @@ func TestStress_RepeatedStrategySnapshotSwaps(t *testing.T) {
 			for j := 0; j < 25; j++ {
 				req, _ := NewPlanningRequestBuilder().
 					WithRequestID(fmt.Sprintf("req-swap-%d-%d", readerID, j)).
-					WithGoal("Plan under changing strategy").
+					WithGoal("CandidatePlan under changing strategy").
 					WithDomain("General").
 					Build()
 				ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -280,3 +280,4 @@ func TestStress_PlannerShutdownUnderLoad(t *testing.T) {
 	}
 	wg.Wait()
 }
+

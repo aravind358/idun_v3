@@ -61,7 +61,7 @@ func TestPlanBuilder_Fluent(t *testing.T) {
 		Build()
 
 	if err != nil {
-		t.Fatalf("expected valid Plan built, got: %v", err)
+		t.Fatalf("expected valid CandidatePlan built, got: %v", err)
 	}
 
 	if plan.PlanID != "plan-777" || plan.TraceID != "trace-777" || len(plan.Subgoals) != 1 {
@@ -103,3 +103,4 @@ func TestPlanningTraceBuilder_Fluent(t *testing.T) {
 		t.Errorf("built trace diagnostic mismatch")
 	}
 }
+

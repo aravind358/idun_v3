@@ -342,13 +342,7 @@ func (h *RuntimeHost) Build() error {
 	}
 	h.executiveSvc = execSvc
 
-	if h.isSubsystemEnabled("understanding") {
-		h.underSvc = understanding.NewService(
-			understanding.WithConfigOptions(),
-			h.workspaceSvc,
-			understanding.WithPayloadStorer(&payloadStorerAdapter{store: storeSvc}),
-		)
-	}
+
 	if h.isSubsystemEnabled("reasoning") {
 		h.reasonSvc = reasoning.NewService(
 			reasoning.DefaultConfig(),
@@ -407,6 +401,27 @@ func (h *RuntimeHost) Build() error {
 			"model": realizationModel,
 		},
 	})
+	_ = h.modelRegSvc.Register(context.Background(), "deliberative-parser", registry.BackendDescriptor{
+		ID:             "ollama-local-01",
+		DriverScheme:   "ollama",
+		Endpoint:       "http://localhost:11434",
+		Version:        "1.0",
+		MaxConcurrency: 4,
+		DriverConfig: map[string]string{
+			"model": realizationModel,
+		},
+	})
+
+
+	if h.isSubsystemEnabled("understanding") {
+		delib := understanding.NewDeliberativeWorker(h.inferenceSvc, h.workspaceSvc, 5*time.Second)
+		h.underSvc = understanding.NewService(
+			understanding.WithConfigOptions(),
+			h.workspaceSvc,
+			understanding.WithPayloadStorer(&payloadStorerAdapter{store: h.storageSvc}),
+			understanding.WithDeliberativeWorker(delib),
+		)
+	}
 
 	if h.isSubsystemEnabled("realization") {
 		rlzSvc, err := realization.NewServiceBuilder().

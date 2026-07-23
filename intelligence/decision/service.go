@@ -147,6 +147,16 @@ type planPayload struct {
 	ConfidenceProfile struct {
 		OverallConfidence float64 `json:"overall_confidence"`
 	} `json:"confidence_profile"`
+	ResolvedGoal *struct {
+		Intent      string            `json:"intent"`
+		Target      string            `json:"target"`
+		Constraints map[string]string `json:"constraints"`
+	} `json:"resolved_goal,omitempty"`
+	PresentationDirectives *struct {
+		Tone      string `json:"tone"`
+		Verbosity string `json:"verbosity"`
+		Language  string `json:"language"`
+	} `json:"presentation_directives,omitempty"`
 	SourceTier string `json:"source_tier"`
 }
 
@@ -186,7 +196,7 @@ func (s *DefaultDecisionService) handleCandidatePlans(ctx context.Context, env c
 	} else {
 		var singlePlan planPayload
 		if err := json.Unmarshal(data, &singlePlan); err != nil {
-			return fmt.Errorf("decision: failed to parse payload as PlanningResult or Plan: %w", err)
+			return fmt.Errorf("decision: failed to parse payload as PlanningResult or CandidatePlan: %w", err)
 		}
 		plans = []*planPayload{&singlePlan}
 	}
@@ -210,6 +220,16 @@ func (s *DefaultDecisionService) handleCandidatePlans(ctx context.Context, env c
 		if p.SourceTier != "" {
 			meta["source_tier"] = p.SourceTier
 		}
+		if p.ResolvedGoal != nil {
+			if rgBytes, err := json.Marshal(p.ResolvedGoal); err == nil {
+				meta["resolved_goal"] = string(rgBytes)
+			}
+		}
+		if p.PresentationDirectives != nil {
+			if pdBytes, err := json.Marshal(p.PresentationDirectives); err == nil {
+				meta["presentation_directives"] = string(pdBytes)
+			}
+		}
 		cs.Candidates = append(cs.Candidates, Candidate{
 			ID:            p.PlanID,
 			Description:   p.Goal,
@@ -232,15 +252,15 @@ func (s *DefaultDecisionService) handleCandidatePlans(ctx context.Context, env c
 		return fmt.Errorf("decision: failed to evaluate candidate plans: %w", err)
 	}
 
-	var selectedDesc string
-	for _, cand := range cs.Candidates {
+	var selectedCand *Candidate
+	for i, cand := range cs.Candidates {
 		if cand.ID == rec.SelectedCandidateID {
-			selectedDesc = cand.Description
+			selectedCand = &cs.Candidates[i]
 			break
 		}
 	}
-	if selectedDesc == "" && len(cs.Candidates) > 0 {
-		selectedDesc = cs.Candidates[0].Description
+	if selectedCand == nil && len(cs.Candidates) > 0 {
+		selectedCand = &cs.Candidates[0]
 	}
 
 	devLog("Decision", "Candidate selected")
@@ -249,7 +269,7 @@ func (s *DefaultDecisionService) handleCandidatePlans(ctx context.Context, env c
 	if parentID == "" {
 		parentID = env.ID
 	}
-	_, err = PublishDeliberativeDecision(ctx, rec, selectedDesc, s.storer, s.publisher, parentID)
+	_, err = PublishDeliberativeDecision(ctx, rec, selectedCand, s.storer, s.publisher, parentID)
 	if err != nil {
 		return err
 	}
@@ -445,3 +465,4 @@ func (s *DefaultDecisionService) ExecuteTask(ctx context.Context, workflowID, no
 func (s *DefaultDecisionService) SelectAction(ctx context.Context, optionsRef string) (string, error) {
 	return optionsRef, nil
 }
+

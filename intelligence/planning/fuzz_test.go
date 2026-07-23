@@ -6,10 +6,10 @@ import (
 	"time"
 )
 
-// FuzzPlanValidation fuzzes Plan deserialization and structural validation against arbitrary bytes.
+// FuzzPlanValidation fuzzes CandidatePlan deserialization and structural validation against arbitrary bytes.
 func FuzzPlanValidation(f *testing.F) {
 	// Seed with valid and malformed JSON
-	validPlan := Plan{
+	validPlan := CandidatePlan{
 		PlanID:             "p-1",
 		SchemaVersion:      SchemaVersion2_0_0,
 		StrategySnapshotID: "snap-1",
@@ -26,7 +26,7 @@ func FuzzPlanValidation(f *testing.F) {
 	f.Add(`{"plan_id":"p-1","schema_version":"2.0.0-FROZEN","estimated_cost":-50.0}`)
 
 	f.Fuzz(func(t *testing.T, data string) {
-		var plan Plan
+		var plan CandidatePlan
 		if err := json.Unmarshal([]byte(data), &plan); err == nil {
 			_ = plan.Validate()
 		}
@@ -159,7 +159,7 @@ func FuzzFingerprints(f *testing.F) {
 	f.Add("", "", "", "", "", "")
 
 	f.Fuzz(func(t *testing.T, planID, goal, domain, tier, sgID, sgTitle string) {
-		plan := &Plan{
+		plan := &CandidatePlan{
 			PlanID:        planID,
 			SchemaVersion: SchemaVersion2_0_0,
 			CreatedAt:     time.Now().UTC(),
@@ -173,3 +173,4 @@ func FuzzFingerprints(f *testing.F) {
 		_, _ = fpGen.ComputeFingerprint(plan)
 	})
 }
+

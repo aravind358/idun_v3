@@ -1,0 +1,496 @@
+# IDUN V3 Master Development Roadmap (`TODO.md`)
+
+This document serves as the authoritative master development roadmap, technical debt ledger, unfinished runtime wiring manifest, and architectural refinement tracker for IDUN V3 (`2.0.0-FROZEN`).
+
+> [!IMPORTANT]
+> **Single Source of Truth & Zero-Memory Rule**: All future development, planned improvements, technical debt, and architectural refactoring must be tracked here so that future development does not rely on memory or hidden assumptions.
+> When a TODO is completed, remove it from this document and record the implementation details in the appropriate package `README.md` or project `CHANGELOG.md`.
+
+---
+
+## Engineering Assessment: Runtime Investigation Verdict
+
+```
+Runtime Investigation Verdict
+✅ Root cause analysis completed.
+✅ Cache investigation completed.
+✅ Runtime repair completed.
+⚠️ Language Realization contains temporary conversational policy.
+📋 Future improvement: Move conversational content generation into the cognitive layer while keeping Language Realization responsible only for natural-language expression.
+```
+
+---
+
+## 0. Architecture & System-Wide Pipelines
+
+### Introduce Structured Semantic Response Object
+- **Priority**: High
+- **Status**: Planned
+- **Category**: Architecture, Presentation, Decision, Understanding
+- **Background**: The Executive Output Audit revealed that the cognitive system currently loses semantic information before reaching Language Realization.
+  Current flow:
+  ```
+  Understanding
+          ↓
+  Reasoning
+          ↓
+  Planning
+          ↓
+  Decision
+          ↓
+  ExecutionResponse
+          ↓
+  Language Realization
+  ```
+  Current `ExecutionResponse` contains only: `ResponseID`, `ParentRef`, `FinalizedContent`, `Tone`, and `Language`.
+  Most semantic information is flattened into a single string (`FinalizedContent`), causing Language Realization to reconstruct meaning using prompts instead of receiving structured semantic data. This creates unnecessary prompt complexity and prevents deterministic response generation.
+- **Goal**: Introduce a structured semantic response object that preserves cognitive meaning through the pipeline until Language Realization. Executive should remain completely content-blind and continue forwarding payloads unchanged. Language Realization should receive structured semantic information rather than reconstructing intent from text.
+- **Current implementation**: `Decision` flattens cognitive candidate descriptions into a raw string inside `ExecutionResponse.FinalizedContent`. `Language Realization` parses this text using LLM prompt instructions (`prompt.go`).
+- **Planned architecture**: Upstream cognitive modules (`Understanding`, `Reasoning`, `Decision`) produce and propagate a structured semantic object across the Global Workspace. `Executive` forwards `PayloadRef` content-blindly. `Language Realization` unmarshals the structured semantic response and renders natural human speech without inferring intent from flat text.
+- **Detailed TODO Breakdown**:
+  - **SR-001**: Audit current semantic information produced by Understanding (`SemanticFrame`, `Intent`, `Entities`, `Slots`, `Confidence`, `Context`, `Metadata`). Document which fields are already available. (**Status**: Planned)
+  - **SR-002**: Audit semantic information produced by Reasoning (`Goal`, `Meaning`, `Explanation`, `Constraints`, `Candidate responses`, `Internal reasoning artifacts`). Determine which should survive downstream. (**Status**: Planned)
+  - **SR-003**: Audit Decision output. Determine exactly where semantic information is flattened into `FinalizedContent`. Document required modifications without implementation. (**Status**: Planned)
+  - **SR-004**: Design the new semantic response object. This should contain only information required by downstream presentation (e.g., `semantic type`, `semantic meaning`, `intent`, `slots/entities`, `tone`, `language`, `confidence`). Do not finalize the schema yet; this task is investigation and design only. (**Status**: Planned)
+  - **SR-005**: Update Language Realization to consume structured semantic information instead of reconstructing meaning from `FinalizedContent`. This is a future implementation task. (**Status**: Planned)
+  - **SR-006**: Eventually replace prompt-based conversational policies with deterministic semantic rendering. Prompt instructions should become minimal. Language Realization should become primarily a realization layer rather than a reasoning layer. (**Status**: Technical Debt)
+- **Notes**: Do not implement code changes until subtasks SR-001 through SR-004 (investigation and design) are completed and reviewed.
+
+---
+
+## 1. Runtime
+
+### Wire Deliberative LLM Stages (`Understanding` & `Reasoning`) into Runtime
+- **Priority**: High
+- **Status**: Unfinished Runtime Work
+- **Reason**: Both `understanding.DeliberativeWorker` and `reasoning.DeliberativeSpecialist` (`StageS8DeliberativeLLM`) are fully implemented in code (`deliberative.go`), but `InferenceService` (`inference.Service`) is not injected into these services during `RuntimeHost.Build()` (`runtime/host.go`).
+- **Current implementation**: `runtime/host.go` instantiates `Understanding` and `Reasoning` without passing `WithInferenceService(infSvc)`. Consequently, when speculative NLU or deterministic reasoning falls below confidence thresholds, these modules cannot escalate to local LLM fallbacks during production turns.
+- **Desired implementation**: Pass `InferenceService` to `understanding.NewService` and `reasoning.NewService` in `RuntimeHost.Build()`, ensuring `DeliberativeWorker` and `DeliberativeSpecialist` are active and ready for fallback escalation.
+- **Notes**: Ensure appropriate SLA timeouts and circuit breakers are configured so deliberative escalation does not violate overall turn latency budgets.
+
+### Wire Attention Subsystem into Production Runtime
+- **Priority**: Medium
+- **Status**: Unfinished Runtime Work
+- **Reason**: The `attention` package (`idun/intelligence/attention`) is fully implemented with salience scoring (`service.go`) and workspace subscription adapters (`workspace_bridge.go`), but `RuntimeHost.Build()` does not instantiate or connect it.
+- **Current implementation**: `runtime/host.go` skips `attention.Service` initialization entirely.
+- **Desired implementation**: Instantiate `attention.NewService()` in `runtime/host.go` and subscribe it to `TopicCandidatePlans` and `TopicEvaluatedOptions` to actively regulate working memory salience and prioritize high-urgency envelopes.
+- **Notes**: Verify `-race` clean execution under high concurrency once wired into the Global Workspace bus.
+
+---
+
+## 2. Understanding
+
+### Evaluate Understanding for Structured Semantic Output
+- **Priority**: Medium
+- **Status**: Investigation
+- **Category**: Understanding
+- **Description**: Determine whether Understanding already produces enough structured semantic information to support the future Semantic Response architecture. Specifically investigate whether the following already exist internally: `Intent`, `Entities`, `Slots`, `Confidence`, `Context`, `SemanticFrame`, `Metadata`.
+- **Current implementation**: `SpeculativeEvaluator` and `GrammarSpecialist` (`speculative.go`) parse user text into `SemanticFrame` structures containing `Intent`, `Slots`, and confidence scores during initial perception.
+- **Investigation**: Identify what already exists inside `SemanticFrame` and perception structures, what is missing, what requires only wiring, and what requires new implementation. The goal is to maximize reuse of the existing Understanding architecture rather than redesigning it. Do not modify code. Do not implement any new features. Produce recommendations only.
+- **Planned architecture**: Upstream `Understanding` outputs cleanly structured semantic attributes (`Intent`, `Entities`, `Slots`, `Context`) that flow through `Reasoning` and `Decision` into the eventual Semantic Response object without data loss.
+- **Future implementation**: Connect validated `Understanding` semantic outputs to downstream structures once investigation recommendations are approved.
+- **Notes**: Maintain strict documentation rules: clearly distinguish between what currently exists (`SemanticFrame`), what is under investigation, and what is planned for future implementation. Do not describe planned architecture as if it already exists.
+
+### Local LLM Fallback (`DeliberativeWorker`) Escalation Pipeline
+- **Priority**: Medium
+- **Status**: Planned Improvement
+- **Reason**: When user input contains complex idioms, typos, or out-of-grammar phrasing, deterministic pattern matching (`GrammarSpecialist`) yields low confidence or unparsed slots.
+- **Current implementation**: `SpeculativeEvaluator` runs parallel grammar and neural heuristic scoring. If unparsed, the system lacks active runtime connection to `DeliberativeWorker`.
+- **Desired implementation**: Once `InferenceService` is wired into `Understanding`, verify that `DeliberativeWorker` (`ModelID: "nlu-deliberative-parser"`) automatically intercepts low-confidence frames, extracts structured slots/intents, and outputs validated `SemanticFrame` envelopes.
+- **Notes**: Must enforce strict schema validation so `DeliberativeWorker` never emits malformed JSON or free-form text.
+
+### Multimodal Perception Specialists & Continuous Embeddings
+- **Priority**: Low
+- **Status**: Future Work
+- **Reason**: `Understanding` currently operates exclusively on text token streams (`world/adapters/text`). Future iterations require processing audio, visual, and structured sensor streams alongside continuous vector similarity.
+- **Current implementation**: Text-only `TextInputAdapter` and `SemanticFrame` slot extraction.
+- **Desired implementation**: Implement multimodal perception specialists that extract unified `SemanticFrame` structures from audio/visual inputs, and integrate continuous vector embedding lookups for semantic entity resolution.
+- **Notes**: Requires multimodal backend support in `idun/intelligence/infrastructure/inference` and `registry`.
+
+### Deep Intent DAG Construction
+- **Priority**: Medium
+- **Status**: Planned Improvement
+- **Category**: Understanding
+- **Description**: Enhance speculative.go to construct deep Intent DAGs during simultaneous slot matching, rather than mapping the primary hypothesis to an isolated root node.
+- **Reason**: Full structural parsing for complex, multi-action conversational inputs requires linked intent graphs rather than flattened lists.
+- **Affected Component**: `intelligence/understanding/evaluator.go`, `intelligence/understanding/speculative.go`
+- **Recommended Future Phase**: Phase 2C / 3A
+
+### Deliberative LLM Ambiguity and Assumption Extraction
+- **Priority**: Low
+- **Status**: Planned Improvement
+- **Category**: Understanding
+- **Description**: Expand the Deliberative LLM parsing prompt to naturally extract and populate the `Ambiguity` and `Assumption` arrays in the `SemanticFrame`.
+- **Reason**: While deterministic specialists struggle with open-ended ambiguity detection, deliberative LLM workers inherently detect ambiguities and make assumptions; these should be serialized into the Phase 2B models rather than flattened.
+- **Affected Component**: `intelligence/understanding/deliberative.go`
+- **Recommended Future Phase**: Phase 2C
+
+---
+
+## 3. Reasoning
+
+### Activate CSP Checking (`S3`) & Case Analogy (`S5`) in Production Profiles
+- **Priority**: Medium
+- **Status**: Planned Improvement
+- **Reason**: `CSPCheckSpecialist` (`S3`) and `CaseAnalogySpecialist` (`S5`) are implemented and wired into `Registry`, but are disabled by default (`IsStageEnabled` returns `false` under default `StrategySpec` / `DefaultConfig`).
+- **Current implementation**: Production reasoning relies on `SymbolicSpecialist` ($S_1$), `RelationalGraphSpecialist` ($S_2$), and `BayesianFusionSpecialist` ($S_4$).
+- **Desired implementation**: Conduct performance and latency benchmarking across domain profiles. Enable `StageS3CSPChecking` for constraint-heavy planning tasks and `StageS5CaseAnalogy` for historical case matching where appropriate.
+- **Notes**: Ensure exact timeout bounding so adding $S_3$ and $S_5$ does not breach the 50ms reflexive reasoning budget.
+
+### Neural Relational Reasoning & Theorem Proving
+- **Priority**: Low
+- **Status**: Future Research
+- **Reason**: Deterministic symbolic forward-chaining and relational graph traversals excel at explicit rules but struggle with dense, implicit multi-hop relational inference.
+- **Current implementation**: Symbolic rule engine ($S_1$) and directed graph traversals ($S_2$).
+- **Desired implementation**: Research Graph Neural Networks (GNNs) and neural theorem proving modules integrated into `Reasoning` to evaluate complex multi-hop hypotheses with probabilistic confidence guarantees.
+- **Notes**: Long-term research initiative; must maintain constitutional safety invariants and verification traces.
+
+---
+
+## 4. Planning
+
+### Deliberative Tree Search (`S4`) Activation in Normal Dialogue
+- **Priority**: Medium
+- **Status**: Planned Improvement
+- **Reason**: Multi-alternative tree search (`tree_search.go` / `StageS4DeliberativeTreeSearch`) provides robust contingency generation and multi-branch exploration, but standard user turns default to `DepthTactical` (HTN/GOAP).
+- **Current implementation**: `handleActiveGoal` invokes `executePlanningEpisode(ctx, req, DepthTactical)`. `DepthStrategic` (which triggers `tree_search.go`) runs only on explicit budget escalation.
+- **Desired implementation**: Implement dynamic depth selection in `handleActiveGoal` where high-uncertainty goals or tasks marked with high risk automatically elevate to `DepthStrategic` / multi-alternative tree search ($S_4$).
+- **Notes**: Monitor memory footprint and execution duration when expanding wide decision trees.
+
+### Monte Carlo Tree Search (MCTS) & Neural Policy/Value Networks
+- **Priority**: Low
+- **Status**: Future Research
+- **Reason**: For complex multi-step strategic workflows, HTN and GOAP require explicit domain schemas and goal postconditions.
+- **Current implementation**: Domain-weighted HTN, GOAP, and A* heuristic scoring.
+- **Desired implementation**: Integrate MCTS guided by learned neural value and policy networks (`Policy/Value networks`) to dynamically explore and prune expansive action state spaces.
+- **Notes**: Requires alignment with `Learning` subsystem to train value models over historical `PlanningTrace` outcomes.
+
+---
+
+## 5. Decision
+
+### Reflexive Evaluation (`EvaluateReflexive`) Fast-Path Routing
+- **Priority**: Medium
+- **Status**: Planned Improvement
+- **Reason**: Micro-decisions and low-risk candidate selections do not require multi-criteria Pareto evaluation (`EvaluateDeliberative`), which consumes additional computation and time.
+- **Current implementation**: `handleCandidatePlans` (`decision/service.go:229`) unconditionally invokes `EvaluateDeliberative(ctx, cs)` for every incoming `TopicCandidatePlans` envelope.
+- **Desired implementation**: Implement a classification check on candidate urgency, cost, and budget tier. For reflexive budget envelopes or single-candidate confirmations, route directly to `EvaluateReflexive` (<2ms SLA) and publish appropriate outcome envelopes.
+- **Notes**: Ensure `ShouldPublishToWorkspace` rules are respected or updated cleanly if reflexive decisions need downstream visibility.
+
+### Reinforcement Learning Policy Optimization
+- **Priority**: Low
+- **Status**: Future Research
+- **Reason**: Utility scoring weights across confidence, cost, and risk criteria are currently static or adjusted through explicit statistical formulas.
+- **Current implementation**: Multi-criteria utility scoring and Pareto frontier analysis after Tier 1 Constitutional Hard Gate filtering.
+- **Desired implementation**: Implement offline/online reinforcement learning policy optimization to dynamically fine-tune candidate attribute weights based on historical trace success rates and user feedback.
+- **Notes**: Must operate downstream of the non-negotiable Tier 1 Constitutional Hard Gate.
+
+---
+
+## 6. Executive
+
+### Distributed Multi-Node Episode Execution
+- **Priority**: Medium
+- **Status**: Planned Improvement
+- **Reason**: IDUN currently executes all cognitive episodes and worker threads locally on a single runtime host.
+- **Current implementation**: Single-process `ServiceV2` managing local concurrency slots, worker pools, and dynamic SLA budgets.
+- **Desired implementation**: Extend `Executive` with distributed coordination capabilities (e.g., gRPC/raft or distributed workspace bridge) to dispatch and arbitrate cognitive bids across multi-node compute clusters.
+- **Notes**: Preserve the content-blind arbitration contract and centralized Pre-Broadcast Constitutional Gate across all remote execution nodes.
+
+### Predictive Preemption & Resource Forecasting
+- **Priority**: Low
+- **Status**: Future Work
+- **Reason**: Currently, budget checks and constitutional gate evaluations occur right when an action bid is arbitrated or submitted (`SubmitBid` / `ArbitrateCompetition`).
+- **Current implementation**: Reactive SLA timeout enforcement (`context.WithTimeout`) and budget unit deduction during competition arbitration.
+- **Desired implementation**: Add predictive resource forecasting that monitors active queue depths across `Understanding`, `Reasoning`, and `Planning`, preemptively throttling or canceling low-priority speculative branches before resource starvation occurs.
+- **Notes**: Integrate with `inference.Service.GetTelemetry()` queue depth metrics.
+
+---
+
+## 7. Attention
+
+### Salience Regulation & Priority Queue Integration
+- **Priority**: Medium
+- **Status**: Unfinished Runtime Work / Planned Improvement
+- **Reason**: Once `attention.Service` is wired into `runtime/host.go`, its salience scores (`SalienceScore`) must actively influence envelope processing priority across the Global Workspace.
+- **Current implementation**: `attention.Service` computes salience and urgency adjustments (`workspace_bridge.go`), but the Global Workspace (`workspace.Service`) delivers envelopes in standard subscriber registration/FIFO order.
+- **Desired implementation**: Integrate `attention.Service` salience thresholds directly into `workspace.Service` dispatch queues, ensuring envelopes with `Urgency >= 80` or high salience interrupt lower-priority background tasks immediately.
+- **Notes**: Ensure priority inversion protection and deadlock prevention in the workspace message broker.
+
+### Neural Attention Mechanism Models & Vector Salience
+- **Priority**: Low
+- **Status**: Future Research
+- **Reason**: Hard-coded salience heuristics and rule-based urgency modifiers can miss nuanced context shifts across long-horizon dialogues.
+- **Current implementation**: Rule-based scoring functions and explicit urgency weighting.
+- **Desired implementation**: Integrate learned neural attention mechanism models and continuous vector salience embeddings to dynamically highlight critical context across multi-turn episodes.
+- **Notes**: Must remain lightweight and memory-efficient ($O(1)$ retention bounding).
+
+---
+
+## 8. Learning
+
+### Connect Learning Opportunity Emitting across Cognitive Modules
+- **Priority**: Medium
+- **Status**: Unfinished Runtime Work
+- **Reason**: `learning.Service` (`service.go`) is active in `runtime/host.go` and subscribed to `TopicLearningOpportunity`, but no cognitive subsystem currently publishes `TopicLearningOpportunity` envelopes during normal turn flow.
+- **Current implementation**: The `learning` service sits idle waiting for `TopicLearningOpportunity` envelopes.
+- **Desired implementation**: Update `Reasoning` (when detecting novel symbolic rules or calibration errors) and `Decision` (when observing unexpected candidate rejection patterns) to construct and emit structured `TopicLearningOpportunity` envelopes.
+- **Notes**: Enforce bounded memory invariants so learning trace ingestion never causes memory leaks or unbounded trace growth.
+
+### Online Reinforcement & Gradient Updating
+- **Priority**: Low
+- **Status**: Future Research
+- **Reason**: Continuous adaptation to user preferences across sessions requires online parameter updates and procedural skill synthesis.
+- **Current implementation**: Statistical models, bounded campaign summaries (`LearningCampaignSummary`), and drift tracking (`TraceStatisticalSummary`).
+- **Desired implementation**: Develop safe online reinforcement learning and gradient-updating mechanisms constrained by constitutional bounds to refine cognitive strategy profiles (`PlanningPolicyProfile`).
+- **Notes**: Must undergo strict pre-broadcast constitutional validation before committing profile changes.
+
+---
+
+## 9. Reflection
+
+### Connect Impasse Publishing across Reasoning & Planning
+- **Priority**: Medium
+- **Status**: Unfinished Runtime Work
+- **Reason**: `reflection.Service` is instantiated in `runtime/host.go` and subscribed to `TopicImpasses`, but `Reasoning` and `Planning` do not publish `TopicImpasses` when deadlocks or plan infeasibility occur during standard turns.
+- **Current implementation**: When `Planning` exhausts its budget or finds no valid plan (`TerminationNoValidPlan` / `PlanStatusInfeasible`), it returns an error or partial result to the caller without publishing to `TopicImpasses`.
+- **Desired implementation**: Instrument `Planning` (`service.go:421-430`) and `Reasoning` (`deliberative.go`) to emit `TopicImpasses` envelopes when all candidates are disqualified or budgets expire, triggering `reflection.Service` to produce structured `ReflectionReport` critique artifacts.
+- **Notes**: Ensure `ReflectionReport` recommendations flow cleanly into `Executive` or `Learning` without creating infinite retry loops.
+
+### Metacognitive Critique Networks & Autoencoders
+- **Priority**: Low
+- **Status**: Future Research
+- **Reason**: Rule-based impasse analysis (`AnalyzeTrends`) identifies explicit threshold breaches but may overlook subtle multi-episode performance drift.
+- **Current implementation**: Pattern matching, rule engines, and historical summary comparative checks.
+- **Desired implementation**: Research neural metacognitive critique networks and variational autoencoders trained over historical `LearningTrace` summaries to detect behavioral anomalies and structural cognitive inefficiencies.
+- **Notes**: Keep analysis read-only (`HistoricalSummaryRequest`) to maintain absolute separation from live transaction paths.
+
+---
+
+## 10. Calibration
+
+### Bayesian Hierarchical Calibration & Neural Adaptors
+- **Priority**: Medium
+- **Status**: Planned Improvement
+- **Reason**: Current calibration (`calibration.Specialist`) uses flat Platt scaling and Beta calibration over primary/beam hypotheses, which can over- or under-calibrate when switching rapidly across diverse problem domains.
+- **Current implementation**: Statistical scaling functions applied uniformly within `Reasoning` stage evaluation.
+- **Desired implementation**: Implement Bayesian hierarchical calibration models and lightweight neural adaptors that dynamically adjust confidence profiles based on domain metadata and historical specialist accuracy.
+- **Notes**: Ensure calibration execution remains deterministic and well within the allotted statistical calculation budget (<5ms).
+
+---
+
+## 11. Constitution
+
+### Constitutional AI Critique & Formal Verification
+- **Priority**: Low
+- **Status**: Future Work
+- **Reason**: While hard-coded safety rules (`ActionGate`) and HMAC-SHA256 tokens (`ActionApprovalToken`) guarantee absolute protection against known invariant violations, nuanced ethical trade-offs benefit from deliberative constitutional evaluation.
+- **Current implementation**: Deterministic safety rule engine (`gate.go`) filtering `TopicActionExecution` and intermediate hypotheses.
+- **Desired implementation**: Add a secondary Constitutional AI self-critique pass (via local LLM fallback) for complex boundary actions, alongside formal mathematical verification proofs for critical kernel safety invariants.
+- **Notes**: The deterministic hard-coded safety gate must always take precedence over any probabilistic LLM critique.
+
+---
+
+## 12. Memory
+
+### Automated CAS Garbage Collection & Generational Pruning
+- **Priority**: Medium
+- **Status**: Planned Improvement
+- **Reason**: Content-Addressed Storage (`core/storage` & `payloadStorerAdapter`) persists envelopes, traces, and intermediate reasoning artifacts indefinitely, which can cause disk space accumulation over long periods.
+- **Current implementation**: Append-only / store-and-retrieve CAS storage (`storage.Service`) without automated expiration.
+- **Desired implementation**: Implement automated TTL-based pruning and generational garbage collection policies that archive or delete transient reflexive traces (`TraceID`, `ExecutionResponse`) while preserving long-term `HistoricalSummary` contracts and constitutional audit logs.
+- **Notes**: Ensure concurrent read safety (`-race` clean) during background pruning sweeps.
+
+---
+
+## 13. Language Realization
+
+### Remove Conversational Policy from Language Realization
+- **Priority**: Medium
+- **Status**: Technical Debt
+- **Reason**: The runtime repair correctly prevents internal reasoning leakage and restores natural conversation (`I am IDUN...`, `Hello! How can I assist you today?`, etc.). However, Language Realization currently contains small amounts of conversational policy (e.g., greetings, identity responses, farewells, wellbeing responses) inside the realization prompt (`prompt.go`). Architecturally, these behaviors belong in the cognitive layer. Language Realization should remain responsible only for expressing approved semantic meaning naturally.
+- **Current implementation**: The realization prompt (`presentation/realization/prompt.go`) maps specific intents (`greet_user`, `query_identity`, `query_wellbeing`, `farewell_user`) to conversational responses via system prompt instructions.
+- **Desired implementation**: Future cognitive modules (`Reasoning` / `Decision`) should produce structured semantic responses such as:
+  ```json
+  {
+    "Type": "Greeting",
+    "Meaning": "Hello",
+    "Tone": "Friendly"
+  }
+  ```
+  or
+  ```json
+  {
+    "Type": "Identity",
+    "Meaning": "I am IDUN, your personal AI assistant.",
+    "Tone": "Professional"
+  }
+  ```
+  Language Realization should simply realize these semantic structures into natural language without explicit intent-matching rules inside the realization prompt.
+- **Notes**: **Do not implement this now.** The current runtime repair is correct and should remain in place until the cognitive semantic-response pipeline matures. Implement after `Reasoning` and `Decision` natively emit `SemanticResponse` envelopes.
+
+### Multi-Turn Dialogue Model & Multilingual Styling Engines
+- **Priority**: Low
+- **Status**: Future Work
+- **Reason**: Surface realization currently executes single-turn stateless phrasing (`BuildRealizationPrompt`) targeting `en-US` with simple tone rules (`ToneProfessional`, `ToneConversational`).
+- **Current implementation**: Template prompt formatting submitted to shared `InferenceService` (`local-realizer` / `qwen2.5:1.5b`).
+- **Desired implementation**: Integrate specialized multi-turn dialogue realization models (`Dialogue Model`) that maintain conversational cadence over extended sessions, along with dynamic multilingual styling engines for localized idioms (`ja-JP`, `de-DE`, `es-ES`, etc.).
+- **Notes**: Must strictly preserve the stateless realization guarantee (no NLU or decision comparison inside the presentation layer).
+
+---
+
+## 14. Infrastructure
+
+### Elastic Worker Auto-Scaling & Telemetry Dashboard Export
+- **Priority**: Medium
+- **Status**: Planned Improvement
+- **Reason**: `InferenceService` (`inference/service.go`) tracks queue depths (`reflexiveQueueDepth`, `standardQueueDepth`, `deliberativeQueueDepth`) and active workers via `GetTelemetry()`, but worker pools have fixed concurrency boundaries (`MaxConcurrency: 4` in `host.go`).
+- **Current implementation**: Fixed concurrency per backend registered in `ModelRegistry` (`registry/service.go`).
+- **Desired implementation**: Implement elastic worker auto-scaling that dynamically adjusts backend concurrency based on real-time SLA queue depth pressure, and create an OpenTelemetry/Prometheus export adapter to visualize live cognitive pipeline metrics on external monitoring dashboards.
+- **Notes**: Ensure concurrency limits respect underlying hardware GPU/VRAM constraints (`ollama-local-01`).
+
+---
+
+## 15. Testing
+
+### Comprehensive End-to-End Multimodal & Escalation Benchmarks
+- **Priority**: Medium
+- **Status**: Planned Improvement
+- **Reason**: The repository maintains rigorous `-race` clean unit tests (`service_test.go`) and component benchmark suites, but complex multi-turn escalation flows ($S_1 \to S_8$ and HTN tree search $S_4$) need continuous integration validation under simulated user loads.
+- **Current implementation**: Independent package test suites (`intelligence/understanding/...`, `presentation/realization/...`, `runtime/...`).
+- **Desired implementation**: Build an automated end-to-end integration test harness (`tests/e2e`) that simulates full multi-turn user dialogues, injecting ambiguous prompts to verify automatic fallback escalation (`DeliberativeWorker` / `DeliberativeSpecialist`), constitutional gate arbitration, and accurate natural language realization without reasoning leakage.
+- **Notes**: Integrate into CI pipelines with automated latency threshold checks.
+
+---
+
+## 16. Documentation
+
+### Automated Architecture Status Verification Checks
+- **Priority**: Low
+- **Status**: Planned Improvement
+- **Reason**: As IDUN evolves toward future phases, documentation tables in `intelligence/README.md` (`Code Exists`, `Wired into Runtime`, `Used in Production`) must stay precisely aligned with actual source code wiring.
+- **Current implementation**: Comprehensive, exact manual verification and status audits (`README.md`).
+- **Desired implementation**: Create a CI verification linter/script (`scripts/audit_architecture.go`) that parses `runtime/host.go` and `topics.go` AST definitions to automatically verify that documented runtime wiring and topic subscriptions match the code base exactly.
+- **Notes**: Prevents architectural drift across long-term collaborative engineering cycles.
+
+---
+
+## 17. Future Research
+
+### Self-Improving Autonomous Cognitive Loop
+- **Priority**: Low
+- **Status**: Future Research
+- **Reason**: Achieving true autonomous agentic intelligence requires IDUN to continuously refine its own cognitive strategies and heuristics based on empirical outcome evidence over time.
+- **Current implementation**: Static and statistical strategy definitions (`PlanningPolicyProfile`, `StrategySnapshot`) managed through explicit component configs.
+- **Desired implementation**: Research a closed-loop autonomous improvement cycle where `Reflection`, `Learning`, and `Calibration` collaboratively propose, simulate, and deploy updated cognitive strategy snapshots (`StrategySnapshot`) in real time, strictly guarded by immutable `Constitution` safety firewalls.
+- **Notes**: Requires mathematical safety verification and cryptographic rollback checkpoints before deployment.
+
+---
+
+## 18. Phase 2A Technical Debt & Enhancements
+
+### Remove Legacy Struct Unpacking in Workspace Bridge
+- **Priority**: Medium
+- **Status**: Future Work
+- **Reason**: The `decision/workspace_bridge.go` still contains `bridgeReasoningResultPayload` and `bridgeSemanticFramePayload` to support backwards compatibility parsing of legacy envelopes.
+- **Desired implementation**: Completely remove these bridge payloads once all subsystems cleanly emit strict boundaries and legacy traces are cleared or ignored.
+
+### Consolidate Candidate Metadata Mapping
+- **Priority**: Low
+- **Status**: Future Work
+- **Reason**: `decision.Candidate` uses a stringly typed map (`map[string]string`) to pass `ResolvedGoal` and `PresentationDirectives` JSON strings down to the `WorkspaceBridge`.
+- **Desired implementation**: Refactor `Candidate` metadata to support typed any-values or natively embed presentation hints directly into a dedicated Phase 2B candidate structure to avoid marshal/unmarshal overhead.
+
+---
+
+## 19. Phase 3B Capability Framework Engineering Improvements
+
+### Capability Blueprint
+- **Priority**: Low
+- **Status**: Future Work
+- **Reason**: The standard internal structure of every capability needs to be formally documented to assist developers.
+- **Desired implementation**: Create a formal architecture blueprint describing the standard internal structure of every capability.
+
+### Engineering Standard v1.1
+- **Priority**: Low
+- **Status**: Future Work
+- **Reason**: The Capability Conformance Checklist requires periodic refinement.
+- **Desired implementation**: Update the Engineering Standard to include a Mandatory Provider Architecture section, Mandatory Capability Metrics section, Engineering Quality section, Observability section, and an Updated Version History.
+
+### Capability Generator
+- **Priority**: Low (after Phase 3B)
+- **Status**: Future Enhancement
+- **Reason**: Copying the template directory manually is repetitive and prone to search/replace errors.
+- **Desired implementation**: Create a command-line tool (e.g. `idun create capability Files`) that automatically creates a new capability from the Native Capability Template, generating the directory with all required scaffolding, tests, providers, metadata, metrics, lifecycle, permissions, and normalization already in place.
+
+---
+
+## 20. Native Files Capability Roadmap
+
+### Streaming File Operations
+- **Priority**: Medium
+- **Status**: Deferred
+- **Reason**: The current Files Capability loads file data directly during execution. Future versions should support efficient streaming for large files to avoid unnecessary memory consumption.
+- **Desired implementation**: Add Read Stream, Write Stream, Chunk Reader, and Chunk Writer. Future goals include supporting extremely large files, minimizing memory usage, progressive reads/writes, context cancellation, and configurable chunk sizes. Do NOT implement during Phase 3B.3.
+
+---
+
+## 21. Native Media Capability Roadmap
+
+### Media Session Manager
+- **Priority**: Medium
+- **Status**: Deferred
+- **Reason**: The current Media Capability executes playback and recording as independent operations. Future versions should support persistent media sessions.
+- **Desired implementation**: Add persistent playback and recording sessions, session lifecycle management, state tracking, concurrent sessions, and graceful cleanup of abandoned sessions. Do NOT implement during Phase 3B.6.
+
+### Hardware Capability Detection
+- **Priority**: Medium
+- **Status**: Deferred
+- **Reason**: Future versions of the Media Provider should expose the multimedia capabilities supported by the host hardware (e.g. microphones, hardware encoders/decoders).
+- **Desired implementation**: Add hardware capability discovery, runtime capability reporting, supported codec enumeration, and device feature reporting. Do NOT implement during Phase 3B.6.
+
+---
+
+## 22. Native Devices Capability Roadmap
+
+### Device Permission Cache
+- **Priority**: Low
+- **Status**: Deferred
+- **Reason**: Some operating systems repeatedly prompt users for permissions such as Camera, Microphone, Bluetooth, and Location. Future versions should maintain a temporary cache of permission states.
+- **Desired implementation**: Add caching of granted/denied permissions, expiration support, refresh mechanism, platform-specific adapters, and thread-safe cache. This must never bypass OS security. Do NOT implement during Phase 3B.7.
+
+---
+
+## 23. Phase 3B Capability Roadmap
+
+The sequence of implementation for the Native Capability Framework:
+1. **Phase 3B.1: Native System** (Completed)
+2. **Phase 3B.2: Native Files** (Completed)
+3. **Phase 3B.3: Native Communication** (Completed)
+4. **Phase 3B.4: Native Network** (Completed)
+5. **Phase 3B.5: Native Media** (Completed)
+6. **Phase 3B.6: Native Devices** (Completed)
+7. **Phase 3B.7: Native Automation** (Completed)
+
+*(Note: CategoryExternalServices remains for future plugins, and CategoryLocation is merged into CategoryDevicesSensors).*
+
+---
+
+## 24. Native Capability Framework Status
+
+### Platform Adapter Layer
+- **Priority**: Medium
+- **Status**: Deferred
+- **Reason**: The current Native Providers intentionally expose a platform-independent interface while many implementations remain stubbed. Future versions should isolate OS-specific implementations into dedicated layers (e.g. `providers/windows/`, `providers/linux/`).
+- **Desired implementation**: Separate platform-specific code from shared logic, minimize conditional compilation, simplify OS support, and allow independent evolution. This is a long-term enhancement and does NOT modify the current architecture. Do NOT begin implementation without authorization.
+
+### Layer Status
+- **Architecture**: FROZEN
+- **Implementation**: COMPLETE
+- **Modification Policy**:
+  - Bug fixes: Allowed
+  - Performance improvements: Allowed
+  - Platform adapters: Allowed
+  - New provider implementations: Allowed
+  - Deferred TODO implementation: Allowed
+  - Architectural redesign: Not allowed without a major version revision

@@ -38,7 +38,7 @@ func TestStrategyProvider_AtomicLifecycle(t *testing.T) {
 func TestPlanFingerprinter_StructuralInvariance(t *testing.T) {
 	fpGen := NewDefaultPlanFingerprinter()
 
-	basePlan := &Plan{
+	basePlan := &CandidatePlan{
 		PlanID:        "plan-hash-1",
 		SchemaVersion: SchemaVersion2_0_0,
 		CreatedAt:     time.Now(),
@@ -49,7 +49,7 @@ func TestPlanFingerprinter_StructuralInvariance(t *testing.T) {
 		},
 		EstimatedCost:     10.0,
 		EstimatedDuration: 1 * time.Hour,
-		Status:            PlanStatusComplete,
+		PlanStatus:        PlanStatusComplete,
 	}
 
 	fp1, err := fpGen.ComputeFingerprint(basePlan)
@@ -60,7 +60,7 @@ func TestPlanFingerprinter_StructuralInvariance(t *testing.T) {
 	// Modify non-structural estimates and status
 	basePlan.EstimatedCost = 500.0
 	basePlan.EstimatedDuration = 48 * time.Hour
-	basePlan.Status = PlanStatusPartialBudgetExhausted
+	basePlan.PlanStatus = PlanStatusPartialBudgetExhausted
 	basePlan.CreatedAt = time.Now().Add(10 * time.Hour)
 
 	fp2, err := fpGen.ComputeFingerprint(basePlan)
@@ -83,3 +83,4 @@ func TestPlanFingerprinter_StructuralInvariance(t *testing.T) {
 		t.Errorf("fingerprint did NOT change after modifying structural graph dependencies! fp=%s", fp1)
 	}
 }
+

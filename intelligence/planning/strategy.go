@@ -84,10 +84,10 @@ type structuralPayload struct {
 	RequiredResources []ResourceRequirement `json:"required_resources"`
 }
 
-// ComputeFingerprint returns the deterministic SHA-256 hex digest for the Plan.
-func (f *DefaultPlanFingerprinter) ComputeFingerprint(plan *Plan) (string, error) {
+// ComputeFingerprint returns the deterministic SHA-256 hex digest for the CandidatePlan.
+func (f *DefaultPlanFingerprinter) ComputeFingerprint(plan *CandidatePlan) (string, error) {
 	if plan == nil {
-		return "", errors.New("cannot compute fingerprint for nil Plan")
+		return "", errors.New("cannot compute fingerprint for nil CandidatePlan")
 	}
 
 	// Make copies of slices and sort them canonically by ID/string to ensure ordering invariant
@@ -138,3 +138,4 @@ func (f *DefaultPlanFingerprinter) ComputeFingerprint(plan *Plan) (string, error
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:]), nil
 }
+

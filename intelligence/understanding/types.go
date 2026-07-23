@@ -162,6 +162,44 @@ func (h Hypothesis) Clone() Hypothesis {
 	return out
 }
 
+// EntityIdentity provides a stable semantic identity for recognized concepts.
+type EntityIdentity struct {
+	EntityID      string   `json:"EntityID"`
+	CanonicalType string   `json:"CanonicalType"`
+	CanonicalName string   `json:"CanonicalName"`
+	Aliases       []string `json:"Aliases"`
+	Confidence    float64  `json:"Confidence"`
+	Lineage       string   `json:"Lineage"`
+}
+
+// ValidationTrace records the output of the internal Semantic Firewall.
+type ValidationTrace struct {
+	TypeValidation         string `json:"TypeValidation"`
+	ConstraintValidation   string `json:"ConstraintValidation"`
+	RelationshipValidation string `json:"RelationshipValidation"`
+	TemporalValidation     string `json:"TemporalValidation"`
+}
+
+// Ambiguity represents a detected multi-path interpretation.
+type Ambiguity struct {
+	AmbiguousSpan        string   `json:"AmbiguousSpan"`
+	CandidateResolutions []string `json:"CandidateResolutions"`
+	Severity             string   `json:"Severity"` // e.g. "FATAL", "WARNING"
+}
+
+// Assumption represents a classified inference made by Understanding.
+type Assumption struct {
+	Category string `json:"Category"` // e.g. "Safe", "Risky", "Preferred"
+	Details  string `json:"Details"`
+}
+
+// IntentNode represents a node in the Intent DAG.
+type IntentNode struct {
+	IntentID     string   `json:"IntentID"`
+	Intent       string   `json:"Intent"`
+	Dependencies []string `json:"Dependencies"` // IDs of prerequisite intents
+}
+
 // SemanticFrame is the canonical, version-invariant output contract published
 // by Understanding to the Global Workspace (TopicPerceivedIntent).
 type SemanticFrame struct {
@@ -186,6 +224,35 @@ type SemanticFrame struct {
 
 	// ProcessedDurationMs records total processing latency in milliseconds.
 	ProcessedDurationMs float64 `json:"ProcessedDurationMs"`
+
+	// --- Phase 2B Semantic Interpretation Fields ---
+
+	// Intents represents the Intent DAG.
+	Intents []IntentNode `json:"Intents,omitempty"`
+
+	// Entities contains strongly-typed ontological objects.
+	Entities map[string]EntityIdentity `json:"Entities,omitempty"`
+
+	// Constraints contains hard boundaries extracted from text.
+	Constraints []string `json:"Constraints,omitempty"`
+
+	// ValidationTrace contains detailed structural validation results.
+	ValidationTrace *ValidationTrace `json:"ValidationTrace,omitempty"`
+
+	// Ambiguities contains detected multi-path interpretations.
+	Ambiguities []Ambiguity `json:"Ambiguities,omitempty"`
+
+	// Assumptions contains inferences made by Understanding.
+	Assumptions []Assumption `json:"Assumptions,omitempty"`
+
+	// MissingInformation contains known required slots that were absent.
+	MissingInformation []string `json:"MissingInformation,omitempty"`
+
+	// Completeness records the semantic completeness score [0.0, 1.0].
+	Completeness float64 `json:"Completeness,omitempty"`
+
+	// ConfidenceTrace records modifiers applied to the base confidence.
+	ConfidenceTrace []string `json:"ConfidenceTrace,omitempty"`
 }
 
 // Validate checks whether the SemanticFrame satisfies all structural and beam invariants.

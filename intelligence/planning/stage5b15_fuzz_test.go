@@ -14,7 +14,7 @@ func FuzzPlanningResultParsing(f *testing.F) {
 		RequestID:     "req-1",
 		ResultStatus:  ResultSuccess,
 		PrimaryPlanID: "plan-1",
-		Plans: []*Plan{
+		Plans: []*CandidatePlan{
 			{
 				PlanID:             "plan-1",
 				SchemaVersion:      SchemaVersion2_0_0,
@@ -222,3 +222,4 @@ func FuzzPlannerRouting(f *testing.F) {
 		}
 	})
 }
+

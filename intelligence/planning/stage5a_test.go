@@ -276,8 +276,8 @@ func TestStage5A_SingleSpecialist(t *testing.T) {
 	if res.Plans[0].PlannerType != "HTN" {
 		t.Errorf("expected PlannerType=HTN, got %s", res.Plans[0].PlannerType)
 	}
-	if res.Plans[0].Status != PlanStatusComplete {
-		t.Errorf("expected PlanStatusComplete, got %v", res.Plans[0].Status)
+	if res.Plans[0].PlanStatus != PlanStatusComplete {
+		t.Errorf("expected PlanStatusComplete, got %v", res.Plans[0].PlanStatus)
 	}
 }
 

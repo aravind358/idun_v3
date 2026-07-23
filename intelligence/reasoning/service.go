@@ -565,6 +565,42 @@ func (s *Service) ReasonEnvelope(ctx context.Context, perceptionEnv communicatio
 		resolvedGoal = calPrimary.ProposedGoal.Clone()
 	}
 
+	// --- Phase 2C Deliberation Episode Construction ---
+	episode := &DeliberationEpisode{
+		EpisodeID:              telemetry.EpisodeID,
+		SemanticFrameReference: perceptionEnv.ID,
+		GoalGraph:              []*SemanticGoal{},
+		AlternativeEvaluations: []AlternativeEvaluation{},
+		ConstraintEvaluations:  []string{},
+		RiskAssessments:        []RiskAssessment{},
+		AcceptedAssumptions:    []string{},
+		RejectedAssumptions:    []string{},
+		Trace: &DeliberationTrace{
+			Events: []string{"Deliberation started", "Evaluated candidates", "Selected primary goal"},
+		},
+		FinalGoalSelection:  []string{},
+		ReasoningConfidence: calPrimary.CalibratedConfidence,
+	}
+
+	if resolvedGoal != nil {
+		episode.GoalGraph = append(episode.GoalGraph, resolvedGoal)
+		episode.FinalGoalSelection = append(episode.FinalGoalSelection, resolvedGoal.GoalID)
+
+		// Map alternative goals
+		for _, b := range calBeam {
+			if b.ProposedGoal != nil {
+				episode.GoalGraph = append(episode.GoalGraph, b.ProposedGoal)
+				altEval := AlternativeEvaluation{
+					AlternativeID:    b.ProposedGoal.GoalID,
+					GenerationReason: "Ambiguity beam runner-up",
+					Confidence:       b.CalibratedConfidence,
+					RejectionReason:  "Lower confidence than primary",
+				}
+				episode.AlternativeEvaluations = append(episode.AlternativeEvaluations, altEval)
+			}
+		}
+	}
+
 	resultEnvID := fmt.Sprintf("rs-env-%d", time.Now().UnixNano())
 	result := ReasoningResult{
 		SchemaVersion:           SchemaVersion,
@@ -582,6 +618,7 @@ func (s *Service) ReasonEnvelope(ctx context.Context, perceptionEnv communicatio
 		ReasoningTrace:          traceLogs,
 		OfflineMode:             !escalated,
 		ProcessedDurationMs:     durationMs,
+		DeliberationEpisode:     episode,
 	}
 
 	// Stage S9: Constitution Integration

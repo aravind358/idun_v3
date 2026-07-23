@@ -56,7 +56,7 @@ func TestShouldPublishToWorkspace(t *testing.T) {
 }
 
 func TestWorkspaceBridge_PublishAndEnvelopes(t *testing.T) {
-	plan := &Plan{
+	plan := &CandidatePlan{
 		PlanID:             "plan-pub-1",
 		SchemaVersion:      SchemaVersion2_0_0,
 		CreatedAt:          time.Now().UTC(),
@@ -70,7 +70,7 @@ func TestWorkspaceBridge_PublishAndEnvelopes(t *testing.T) {
 			OverallConfidence: 0.9,
 		},
 		ReplayMetadata: ReplayMetadata{StrategySnapshotID: "snap-pub"},
-		Status:         PlanStatusComplete,
+		PlanStatus:     PlanStatusComplete,
 		TraceID:        "trace-pub-1",
 	}
 
@@ -110,7 +110,7 @@ func TestWorkspaceBridge_PublishAndEnvelopes(t *testing.T) {
 	}
 
 	// Test validation firewall interception
-	invalidPlan := &Plan{PlanID: "bad"} // Missing SchemaVersion, Goal, etc.
+	invalidPlan := &CandidatePlan{PlanID: "bad"} // Missing SchemaVersion, Goal, etc.
 	_, err = PublishPlan(context.Background(), invalidPlan, storer, pub)
 	if err == nil {
 		t.Error("expected validation firewall error on invalid plan publication, got nil")
@@ -118,7 +118,7 @@ func TestWorkspaceBridge_PublishAndEnvelopes(t *testing.T) {
 }
 
 func TestMarshalUnmarshalRoundTrips(t *testing.T) {
-	plan := &Plan{PlanID: "p-round", SchemaVersion: SchemaVersion2_0_0, Goal: "Roundtrip", TraceID: "t-1"}
+	plan := &CandidatePlan{PlanID: "p-round", SchemaVersion: SchemaVersion2_0_0, Goal: "Roundtrip", TraceID: "t-1"}
 	data, err := MarshalPlan(plan)
 	if err != nil {
 		t.Fatalf("marshal failed: %v", err)
@@ -138,7 +138,7 @@ func TestMarshalUnmarshalRoundTrips(t *testing.T) {
 		t.Fatalf("trace unmarshal mismatch: %v / %+v", err, t2)
 	}
 
-	res := &PlanningResult{ResultID: "r-round", RequestID: "req-1", Plans: []*Plan{plan}, Traces: []*PlanningTrace{trace}}
+	res := &PlanningResult{ResultID: "r-round", RequestID: "req-1", Plans: []*CandidatePlan{plan}, Traces: []*PlanningTrace{trace}}
 	rData, err := MarshalPlanningResult(res)
 	if err != nil {
 		t.Fatalf("result marshal failed: %v", err)
@@ -148,3 +148,4 @@ func TestMarshalUnmarshalRoundTrips(t *testing.T) {
 		t.Fatalf("result unmarshal mismatch: %v / %+v", err, r2)
 	}
 }
+

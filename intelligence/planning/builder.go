@@ -134,25 +134,25 @@ func (b *PlanningRequestBuilder) Build() (*PlanningRequest, error) {
 // PlanBuilder
 // ============================================================================
 
-// PlanBuilder provides a fluent API for constructing valid Plan artifacts.
+// PlanBuilder provides a fluent API for constructing valid CandidatePlan artifacts.
 type PlanBuilder struct {
-	plan *Plan
+	plan *CandidatePlan
 	err  error
 }
 
 // NewPlanBuilder initializes a builder enforcing canonical SchemaVersion and current timestamps.
 func NewPlanBuilder() *PlanBuilder {
 	return &PlanBuilder{
-		plan: &Plan{
+		plan: &CandidatePlan{
 			SchemaVersion: SchemaVersion2_0_0,
 			CreatedAt:     time.Now().UTC(),
-			Status:        PlanStatusComplete,
+			PlanStatus:    PlanStatusComplete,
 			Domain:        "General",
 		},
 	}
 }
 
-// WithIdentity sets core correlation IDs for the Plan.
+// WithIdentity sets core correlation IDs for the CandidatePlan.
 func (b *PlanBuilder) WithIdentity(planID, strategySnapshotID, traceID string) *PlanBuilder {
 	if b.err != nil {
 		return b
@@ -176,7 +176,7 @@ func (b *PlanBuilder) WithGoalAndDomain(goal, domain, sourceTier string) *PlanBu
 	return b
 }
 
-// WithPlannerIdentity sets the originating planner ID and type on the Plan.
+// WithPlannerIdentity sets the originating planner ID and type on the CandidatePlan.
 func (b *PlanBuilder) WithPlannerIdentity(plannerID, plannerType string) *PlanBuilder {
 	if b.err != nil {
 		return b
@@ -187,12 +187,22 @@ func (b *PlanBuilder) WithPlannerIdentity(plannerID, plannerType string) *PlanBu
 }
 
 
-// WithResolvedGoal accepts the optional structured SemanticGoal from Reasoning without taking ownership.
-// Architectural Invariant: Plan is the lean operational payload and does not embed SemanticGoal.
+// WithResolvedGoal accepts the optional structured SemanticGoal from Reasoning and takes ownership by cloning it.
+// Phase 2A Architectural Invariant: CandidatePlan preserves the structured ResolvedGoal to eliminate downstream string parsing.
 func (b *PlanBuilder) WithResolvedGoal(rg *reasoning.SemanticGoal) *PlanBuilder {
 	if b.err != nil {
 		return b
 	}
+	b.plan.ResolvedGoal = rg.Clone()
+	return b
+}
+
+// WithPresentationDirectives accepts the optional presentation hints from Reasoning.
+func (b *PlanBuilder) WithPresentationDirectives(pd *reasoning.PresentationDirectives) *PlanBuilder {
+	if b.err != nil {
+		return b
+	}
+	b.plan.PresentationDirectives = pd.Clone()
 	return b
 }
 
@@ -219,6 +229,64 @@ func (b *PlanBuilder) AddDependency(dep DependencyEdge) *PlanBuilder {
 		return b
 	}
 	b.plan.Dependencies = append(b.plan.Dependencies, dep)
+	return b
+}
+
+// AddExecutionStep appends an executable unit to the CandidatePlan.
+func (b *PlanBuilder) AddExecutionStep(step ExecutionStep) *PlanBuilder {
+	if b.err != nil {
+		return b
+	}
+	if err := step.Validate(); err != nil {
+		b.err = fmt.Errorf("invalid execution step: %w", err)
+		return b
+	}
+	b.plan.ExecutionSteps = append(b.plan.ExecutionSteps, step)
+	return b
+}
+
+// AddParallelGroup specifies a concurrent execution topology for a set of steps.
+func (b *PlanBuilder) AddParallelGroup(group ParallelGroup) *PlanBuilder {
+	if b.err != nil {
+		return b
+	}
+	b.plan.ParallelGroups = append(b.plan.ParallelGroups, group)
+	return b
+}
+
+// AddCapabilityRequirement declares a needed capability for the Capability Framework.
+func (b *PlanBuilder) AddCapabilityRequirement(req CapabilityRequirement) *PlanBuilder {
+	if b.err != nil {
+		return b
+	}
+	b.plan.CapabilityRequirements = append(b.plan.CapabilityRequirements, req)
+	return b
+}
+
+// WithOptimizationScore sets the utility heuristic score for plan selection.
+func (b *PlanBuilder) WithOptimizationScore(score float64) *PlanBuilder {
+	if b.err != nil {
+		return b
+	}
+	b.plan.OptimizationScore = score
+	return b
+}
+
+// WithValidationTrace attaches the result of the internal plan firewall.
+func (b *PlanBuilder) WithValidationTrace(vt ValidationTrace) *PlanBuilder {
+	if b.err != nil {
+		return b
+	}
+	b.plan.ValidationTrace = &vt
+	return b
+}
+
+// WithLineage binds the upstream cognitive context to the CandidatePlan.
+func (b *PlanBuilder) WithLineage(lineage LineageRecord) *PlanBuilder {
+	if b.err != nil {
+		return b
+	}
+	b.plan.Lineage = &lineage
 	return b
 }
 
@@ -261,7 +329,7 @@ func (b *PlanBuilder) WithStatus(status PlanStatus, reqs []InformationRequiremen
 	if b.err != nil {
 		return b
 	}
-	b.plan.Status = status
+	b.plan.PlanStatus = status
 	for i, r := range reqs {
 		if err := r.Validate(); err != nil {
 			b.err = fmt.Errorf("info requirement[%d] invalid: %w", i, err)
@@ -294,13 +362,16 @@ func (b *PlanBuilder) WithFingerprint(fp string) *PlanBuilder {
 	return b
 }
 
-// Build validates and returns the constructed Plan artifact.
-func (b *PlanBuilder) Build() (*Plan, error) {
+// Build validates and returns the constructed CandidatePlan artifact.
+func (b *PlanBuilder) Build() (*CandidatePlan, error) {
+	if b.plan.PlanStatus == "" {
+		b.plan.PlanStatus = PlanStatusComplete
+	}
 	if b.err != nil {
 		return nil, b.err
 	}
 	if err := b.plan.Validate(); err != nil {
-		return nil, fmt.Errorf("failed to build Plan: %w", err)
+		return nil, fmt.Errorf("failed to build CandidatePlan: %w", err)
 	}
 	return b.plan, nil
 }
@@ -432,3 +503,4 @@ func (b *PlanningTraceBuilder) Build() (*PlanningTrace, error) {
 	}
 	return b.trace, nil
 }
+

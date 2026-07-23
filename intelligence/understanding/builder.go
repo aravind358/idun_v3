@@ -106,6 +106,84 @@ func (b *SemanticFrameBuilder) WithProcessedDuration(ms float64) *SemanticFrameB
 	return b
 }
 
+// --- Phase 2B Builder Methods ---
+
+// WithIntents sets the intent DAG.
+func (b *SemanticFrameBuilder) WithIntents(intents []IntentNode) *SemanticFrameBuilder {
+	if b.err != nil {
+		return b
+	}
+	b.frame.Intents = intents
+	return b
+}
+
+// WithEntities sets the recognized entities.
+func (b *SemanticFrameBuilder) WithEntities(entities map[string]EntityIdentity) *SemanticFrameBuilder {
+	if b.err != nil {
+		return b
+	}
+	b.frame.Entities = entities
+	return b
+}
+
+// WithValidationTrace sets the output of the Semantic Firewall.
+func (b *SemanticFrameBuilder) WithValidationTrace(trace *ValidationTrace) *SemanticFrameBuilder {
+	if b.err != nil {
+		return b
+	}
+	b.frame.ValidationTrace = trace
+	// Route failed validation to Impasse
+	if trace != nil && (trace.TypeValidation == "Failed" || trace.ConstraintValidation == "Failed" || trace.RelationshipValidation == "Failed" || trace.TemporalValidation == "Failed") {
+		b.frame.Status = StatusFailedImpasse
+	}
+	return b
+}
+
+// WithCompleteness sets the completeness score.
+func (b *SemanticFrameBuilder) WithCompleteness(c float64) *SemanticFrameBuilder {
+	if b.err != nil {
+		return b
+	}
+	b.frame.Completeness = c
+	return b
+}
+
+// WithConfidenceTrace adds a trace explaining confidence adjustments.
+func (b *SemanticFrameBuilder) WithConfidenceTrace(trace []string) *SemanticFrameBuilder {
+	if b.err != nil {
+		return b
+	}
+	b.frame.ConfidenceTrace = trace
+	return b
+}
+
+// WithMissingInformation adds missing required slots.
+func (b *SemanticFrameBuilder) WithMissingInformation(missing []string) *SemanticFrameBuilder {
+	if b.err != nil {
+		return b
+	}
+	b.frame.MissingInformation = missing
+	return b
+}
+
+// WithAmbiguities adds detected ambiguities.
+func (b *SemanticFrameBuilder) WithAmbiguities(ambiguities []Ambiguity) *SemanticFrameBuilder {
+	if b.err != nil {
+		return b
+	}
+	b.frame.Ambiguities = ambiguities
+	return b
+}
+
+// WithAssumptions adds classified assumptions.
+func (b *SemanticFrameBuilder) WithAssumptions(assumptions []Assumption) *SemanticFrameBuilder {
+	if b.err != nil {
+		return b
+	}
+	b.frame.Assumptions = assumptions
+	return b
+}
+
 // Build validates all invariants and returns a deep-cloned immutable SemanticFrame.
 func (b *SemanticFrameBuilder) Build() (SemanticFrame, error) {
 	if b.err != nil {

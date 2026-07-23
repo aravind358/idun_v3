@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
+	"idun/boundary"
 	"idun/intelligence/communication"
 )
 
@@ -38,21 +40,14 @@ type PayloadStorer interface {
 	Retrieve(ctx context.Context, key string) ([]byte, error)
 }
 
-// executionResponsePayload defines the JSON payload contract expected by Language Realization.
-type executionResponsePayload struct {
-	ResponseID       string `json:"response_id"`
-	ParentRef        string `json:"parent_ref"`
-	FinalizedContent string `json:"finalized_content"`
-	Tone             string `json:"tone"`
-	Language         string `json:"language"`
-}
 
-// PublishDeliberativeDecision serializes a Deliberative DecisionRecord (or ExecutionResponse if selectedDesc is provided),
+
+// PublishDeliberativeDecision serializes a Deliberative DecisionRecord (or boundary.CommunicationMessage if selectedCand is provided),
 // stores its payload reference, packages it into a canonical communication.Envelope, and publishes it to TopicEvaluatedOptions.
 func PublishDeliberativeDecision(
 	ctx context.Context,
 	rec *DecisionRecord,
-	selectedDesc string,
+	selectedCand *Candidate,
 	storer PayloadStorer,
 	publisher WorkspacePublisher,
 	parentRefs ...string,
@@ -72,21 +67,88 @@ func PublishDeliberativeDecision(
 
 	var data []byte
 	var err error
-	if selectedDesc != "" {
+	if selectedCand != nil {
 		parentID := ""
 		if len(parentRefs) > 0 && parentRefs[0] != "" {
 			parentID = parentRefs[0]
 		}
-		execResp := executionResponsePayload{
-			ResponseID:       "resp-" + rec.DecisionID,
-			ParentRef:        parentID,
-			FinalizedContent: selectedDesc,
-			Tone:             "conversational",
-			Language:         "en-US",
+
+		commMsg := &boundary.CommunicationMessage{
+			ResponseID:  "resp-" + rec.DecisionID,
+			ParentRef:   parentID,
+			Goal:        selectedCand.Description,
+			Meaning:     selectedCand.Description,
+			Tone:        "conversational",
+			Verbosity:   "standard",
+			Language:    "en-US",
+			Modality:    "text",
+			Confidence:  rec.Confidence,
+			DecisionRef: rec.DecisionID,
 		}
-		data, err = json.Marshal(execResp)
+		if parentID != "" {
+			commMsg.ReasoningRef = parentID
+		}
+		
+		if selectedCand.Metadata != nil {
+			if rgStr, ok := selectedCand.Metadata["resolved_goal"]; ok {
+				var rg struct {
+					Intent      string            `json:"intent"`
+					Target      string            `json:"target"`
+					Constraints map[string]string `json:"constraints"`
+				}
+				if json.Unmarshal([]byte(rgStr), &rg) == nil {
+					commMsg.Intent = rg.Intent
+					for k, v := range rg.Constraints {
+						if strings.HasPrefix(k, "slot_") {
+							commMsg.Slots = append(commMsg.Slots, boundary.Slot{
+								Name:  strings.TrimPrefix(k, "slot_"),
+								Value: v,
+							})
+						}
+					}
+				}
+			}
+			if pdStr, ok := selectedCand.Metadata["presentation_directives"]; ok {
+				var pd struct {
+					Tone      string `json:"tone"`
+					Verbosity string `json:"verbosity"`
+					Language  string `json:"language"`
+				}
+				if json.Unmarshal([]byte(pdStr), &pd) == nil {
+					if pd.Tone != "" {
+						commMsg.Tone = pd.Tone
+					}
+					if pd.Verbosity != "" {
+						commMsg.Verbosity = pd.Verbosity
+					}
+					if pd.Language != "" {
+						commMsg.Language = pd.Language
+					}
+				}
+			}
+		}
+
+		if commMsg.Intent == "" || commMsg.Intent == "inform" {
+			if idx := strings.Index(selectedCand.Description, "for intent \""); idx != -1 {
+				sub := selectedCand.Description[idx+len("for intent \""):]
+				if endIdx := strings.Index(sub, "\""); endIdx != -1 {
+					commMsg.Intent = sub[:endIdx]
+				}
+			}
+		}
+		if commMsg.Intent == "" {
+			commMsg.Intent = "inform"
+		}
+		if commMsg.DialogueAct == "" {
+			commMsg.DialogueAct = "INFORM"
+		}
+		if commMsg.Meaning == "" {
+			commMsg.Meaning = selectedCand.Description
+		}
+
+		data, err = boundary.Marshal(commMsg)
 		if err != nil {
-			return communication.Envelope{}, fmt.Errorf("decision: failed to marshal execution response: %w", err)
+			return communication.Envelope{}, fmt.Errorf("decision: failed to marshal communication message: %w", err)
 		}
 	} else {
 		data, err = MarshalDecisionRecord(rec)
@@ -103,6 +165,9 @@ func PublishDeliberativeDecision(
 	env, err := EnvelopeFromDecisionRecord(rec, payloadRef)
 	if err != nil {
 		return communication.Envelope{}, err
+	}
+	if selectedCand != nil {
+		env.PayloadModality = "communication-message"
 	}
 
 	if len(parentRefs) > 0 && parentRefs[0] != "" {

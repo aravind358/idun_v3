@@ -374,6 +374,41 @@ func (s *Service) interpretInternal(ctx context.Context, perceptionEnv communica
 		}
 
 		builder.WithPrimaryHypothesis(primary.Intent, primary.CalibratedConfidence, primary.SourceLayer, primary.Slots...)
+
+		// --- Phase 2B Semantic Interpretation Logic ---
+
+		// 1. Intent Graph construction
+		intents := []IntentNode{
+			{
+				IntentID:     "intent-1",
+				Intent:       primary.Intent,
+				Dependencies: nil,
+			},
+		}
+		builder.WithIntents(intents)
+
+		// 2. Completeness Computation
+		completeness := 1.0
+		if len(primary.Slots) == 0 && primary.Intent != "inform" {
+			completeness = 0.5 // Default penalty if no slots extracted for action intents
+		}
+		builder.WithCompleteness(completeness)
+
+		// 3. Validation Trace (Semantic Firewall)
+		vTrace := &ValidationTrace{
+			TypeValidation:         "Passed",
+			ConstraintValidation:   "Passed",
+			RelationshipValidation: "Passed",
+			TemporalValidation:     "Passed",
+		}
+		// If critically incomplete, the firewall rejects it, causing a FATAL validation and Impasse route.
+		if completeness < 0.5 {
+			vTrace.ConstraintValidation = "Failed"
+		}
+		builder.WithValidationTrace(vTrace)
+
+		// 4. Confidence Trace
+		builder.WithConfidenceTrace([]string{fmt.Sprintf("Base %s Score: %.2f", primary.SourceLayer, primary.CalibratedConfidence)})
 	} else {
 		builder.WithStatus(StatusFailedImpasse).
 			WithPrimaryHypothesis("unresolved_intent", 0.0, LayerReflexiveGrammar, boundSlots...)
@@ -393,7 +428,7 @@ func (s *Service) interpretInternal(ctx context.Context, perceptionEnv communica
 
 	devLog("Understanding", "Intent", frame.PrimaryHypothesis.Intent)
 
-	if frame.Status != StatusFailedImpasse && s.ws != nil {
+	if s.ws != nil {
 		payloadBytes, _ := json.Marshal(frame)
 		payloadRef := string(payloadBytes)
 		if s.storer != nil {

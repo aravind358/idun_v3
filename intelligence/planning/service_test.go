@@ -75,22 +75,20 @@ func TestService_OrchestrationWithSpecialistsAndWorkspace(t *testing.T) {
 		t.Errorf("expected 1 plan with 1 subgoal, got %+v", resTac.Plans)
 	}
 
-	// Verify that Plan, Trace, and Result envelopes were published
-	if len(pub.publishedEnvs) != 3 {
-		t.Fatalf("expected 3 envelopes published for tactical plan, got %d", len(pub.publishedEnvs))
+	// Verify that Trace and Result envelopes were published (Plans are aggregated into Result to prevent duplicate execution)
+	if len(pub.publishedEnvs) != 2 {
+		t.Fatalf("expected 2 envelopes published for tactical plan, got %d", len(pub.publishedEnvs))
 	}
-	foundPlan, foundTrace, foundRes := false, false, false
+	foundTrace, foundRes := false, false
 	for _, env := range pub.publishedEnvs {
-		if env.Topic == communication.TopicCandidatePlans && env.ID[:8] == "env-plan" {
-			foundPlan = true
-		} else if env.Topic == communication.TopicReflections && env.ID[:9] == "env-trace" {
+		if env.Topic == communication.TopicReflections && env.ID[:9] == "env-trace" {
 			foundTrace = true
 		} else if env.Topic == communication.TopicCandidatePlans && env.ID[:7] == "env-res" {
 			foundRes = true
 		}
 	}
-	if !foundPlan || !foundTrace || !foundRes {
-		t.Errorf("missing expected published envelope types: plan=%v trace=%v res=%v", foundPlan, foundTrace, foundRes)
+	if !foundTrace || !foundRes {
+		t.Errorf("missing expected published envelope types: trace=%v res=%v", foundTrace, foundRes)
 	}
 
 	// Reflexive Planning (Should skip publication per Section 4.1 / ShouldPublishToWorkspace)

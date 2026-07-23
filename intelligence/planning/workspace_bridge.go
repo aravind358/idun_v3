@@ -12,7 +12,7 @@ import (
 
 // Sentinel errors for workspace publishing.
 var (
-	ErrInvalidPlan           = errors.New("planning: invalid Plan")
+	ErrInvalidPlan           = errors.New("planning: invalid CandidatePlan")
 	ErrInvalidPlanningTrace  = errors.New("planning: invalid PlanningTrace")
 	ErrInvalidPlanningResult = errors.New("planning: invalid PlanningResult")
 )
@@ -46,18 +46,18 @@ type PayloadStorer interface {
 	Retrieve(ctx context.Context, key string) ([]byte, error)
 }
 
-// EnvelopeFromPlan packages a completed Plan into a canonical Global Workspace Envelope
+// EnvelopeFromPlan packages a completed CandidatePlan into a canonical Global Workspace Envelope
 // targeted at TopicCandidatePlans (`candidate-plans`).
-func EnvelopeFromPlan(plan *Plan, payloadRef string) (communication.Envelope, error) {
+func EnvelopeFromPlan(plan *CandidatePlan, payloadRef string) (communication.Envelope, error) {
 	if plan == nil {
 		return communication.Envelope{}, ErrInvalidPlan
 	}
 	if payloadRef == "" {
-		return communication.Envelope{}, fmt.Errorf("planning: payloadRef cannot be empty when publishing Plan")
+		return communication.Envelope{}, fmt.Errorf("planning: payloadRef cannot be empty when publishing CandidatePlan")
 	}
 
 	urgency := 0
-	if plan.Status == PlanStatusConstraintConflict || plan.Status == PlanStatusInfeasible {
+	if plan.PlanStatus == PlanStatusConstraintConflict || plan.PlanStatus == PlanStatusInfeasible {
 		urgency = 60
 	}
 
@@ -146,11 +146,11 @@ func EnvelopeFromPlanningResult(result *PlanningResult, payloadRef string) (comm
 	return env, nil
 }
 
-// PublishPlan validates, serializes, stores, and publishes a Plan to the Global Workspace.
-// Enforces Validation Firewall: an invalid Plan is rejected prior to storage or broadcast.
+// PublishPlan validates, serializes, stores, and publishes a CandidatePlan to the Global Workspace.
+// Enforces Validation Firewall: an invalid CandidatePlan is rejected prior to storage or broadcast.
 func PublishPlan(
 	ctx context.Context,
-	plan *Plan,
+	plan *CandidatePlan,
 	storer PayloadStorer,
 	publisher WorkspacePublisher,
 	parentRefs ...string,
@@ -159,7 +159,7 @@ func PublishPlan(
 		return communication.Envelope{}, ErrInvalidPlan
 	}
 	if err := plan.Validate(); err != nil {
-		return communication.Envelope{}, fmt.Errorf("planning validation firewall rejected Plan: %w", err)
+		return communication.Envelope{}, fmt.Errorf("planning validation firewall rejected CandidatePlan: %w", err)
 	}
 	if storer == nil || publisher == nil {
 		return communication.Envelope{}, errors.New("planning: storer and publisher cannot be nil")
@@ -278,20 +278,20 @@ func PublishPlanningResult(
 
 // Marshal & Unmarshal Helpers
 
-func MarshalPlan(p *Plan) ([]byte, error) {
+func MarshalPlan(p *CandidatePlan) ([]byte, error) {
 	if p == nil {
 		return nil, ErrInvalidPlan
 	}
 	return json.Marshal(p)
 }
 
-func UnmarshalPlan(data []byte) (*Plan, error) {
+func UnmarshalPlan(data []byte) (*CandidatePlan, error) {
 	if len(data) == 0 {
 		return nil, ErrInvalidPlan
 	}
-	var p Plan
+	var p CandidatePlan
 	if err := json.Unmarshal(data, &p); err != nil {
-		return nil, fmt.Errorf("planning: failed to unmarshal Plan: %w", err)
+		return nil, fmt.Errorf("planning: failed to unmarshal CandidatePlan: %w", err)
 	}
 	return &p, nil
 }
@@ -331,3 +331,4 @@ func UnmarshalPlanningResult(data []byte) (*PlanningResult, error) {
 	}
 	return &r, nil
 }
+

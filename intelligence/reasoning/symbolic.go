@@ -105,6 +105,17 @@ func NewSymbolicSpecialist() *SymbolicSpecialist {
 					OperationHint: "farewell",
 				},
 			},
+			{
+				RuleID: "rule-dialogue-unresolved",
+				Intent: "unresolved_intent",
+				Consequent: &SemanticGoal{
+					Kind:          GoalKindCommunicative,
+					Intent:        "unresolved_intent",
+					Target:        "user",
+					DesiredState:  map[string]string{"clarification_requested": "true"},
+					OperationHint: "acknowledge_unclear",
+				},
+			},
 		},
 	}
 }
@@ -132,18 +143,36 @@ func (s *SymbolicSpecialist) Evaluate(
 
 	intent := ""
 	var slots []understanding.Slot
-	if frame != nil && frame.PrimaryHypothesis.Intent != "" {
-		intent = frame.PrimaryHypothesis.Intent
-		slots = frame.PrimaryHypothesis.Slots
-		conclusion = fmt.Sprintf("Derived symbolic conclusion for intent %q", intent)
-		confidence = frame.PrimaryHypothesis.CalibratedConfidence
-		if confidence <= 0.0 {
-			confidence = 0.90
+	if frame != nil {
+		if len(frame.Intents) > 0 {
+			intent = frame.Intents[0].Intent
+			slots = frame.PrimaryHypothesis.Slots
+			conclusion = fmt.Sprintf("Derived symbolic conclusion for semantic intent graph root %q", intent)
+			confidence = frame.PrimaryHypothesis.CalibratedConfidence
+			if confidence <= 0.0 {
+				confidence = 0.90
+			}
+			for _, slot := range slots {
+				supportingPremises = append(supportingPremises, fmt.Sprintf("slot:%s=%s", slot.Name, slot.Value))
+			}
+			if frame.ValidationTrace != nil {
+				supportingPremises = append(supportingPremises, fmt.Sprintf("validation_trace:Type=%s,Constraint=%s", frame.ValidationTrace.TypeValidation, frame.ValidationTrace.ConstraintValidation))
+			}
+		} else if frame.PrimaryHypothesis.Intent != "" {
+			intent = frame.PrimaryHypothesis.Intent
+			slots = frame.PrimaryHypothesis.Slots
+			conclusion = fmt.Sprintf("Derived symbolic conclusion for intent %q", intent)
+			confidence = frame.PrimaryHypothesis.CalibratedConfidence
+			if confidence <= 0.0 {
+				confidence = 0.90
+			}
+			for _, slot := range slots {
+				supportingPremises = append(supportingPremises, fmt.Sprintf("slot:%s=%s", slot.Name, slot.Value))
+			}
 		}
-		for _, slot := range slots {
-			supportingPremises = append(supportingPremises, fmt.Sprintf("slot:%s=%s", slot.Name, slot.Value))
-		}
-	} else {
+	}
+
+	if intent == "" {
 		conclusion = fmt.Sprintf("Derived symbolic conclusion for perception envelope %s", perceptionEnv.ID)
 		confidence = perceptionEnv.RawConfidence
 		if confidence <= 0.0 {
@@ -200,7 +229,41 @@ func (s *SymbolicSpecialist) Evaluate(
 
 		if matchedRule != nil && matchedRule.Consequent != nil && matchedRule.Consequent.Validate() == nil {
 			proposedGoal = matchedRule.Consequent.Clone()
+			if proposedGoal.Constraints == nil {
+				proposedGoal.Constraints = make(map[string]string)
+			}
+			for _, slot := range slots {
+				proposedGoal.Constraints["slot_"+slot.Name] = slot.Value
+			}
 			supportingPremises = append(supportingPremises, fmt.Sprintf("matched_rule=%s", matchedRule.RuleID))
+
+			// --- Phase 2C Deliberative Population ---
+			proposedGoal.GoalID = fmt.Sprintf("goal-%s", perceptionEnv.ID)
+			proposedGoal.Status = StateCreated
+			proposedGoal.Confidence = confidence
+			proposedGoal.GoalCompleteness = 1.0 // Heuristic: start at 1.0
+			proposedGoal.SemanticFrameID = perceptionEnv.ID
+
+			if frame != nil {
+				if len(frame.Constraints) > 0 {
+					for _, c := range frame.Constraints {
+						proposedGoal.SemanticConstraints = append(proposedGoal.SemanticConstraints, Constraint{
+							Name:     "semantic_constraint",
+							Value:    c,
+							Priority: 50,
+						})
+					}
+				}
+				if len(frame.Assumptions) > 0 {
+					for _, a := range frame.Assumptions {
+						proposedGoal.GoalAssumptions = append(proposedGoal.GoalAssumptions, Assumption{
+							Category: a.Category,
+							Details:  a.Details,
+						})
+						proposedGoal.AcceptedAssumptions = append(proposedGoal.AcceptedAssumptions, a.Category)
+					}
+				}
+			}
 		}
 	} else {
 		for _, rec := range memContext {

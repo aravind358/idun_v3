@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"idun/boundary"
 	"idun/intelligence/communication"
-	"idun/intelligence/decision"
 	"idun/intelligence/infrastructure/inference"
 )
 
@@ -145,34 +145,30 @@ func (s *Service) handleExecutionEnvelope(ctx context.Context, env communication
 		return nil
 	}
 
-	devLog("Language Realization", "Received ExecutionResponse")
+	devLog("Language Realization", "Received CommunicationMessage payload")
 
 	data, err := s.storer.Retrieve(ctx, env.PayloadRef)
 	if err != nil {
 		return fmt.Errorf("realization: failed to retrieve payload %s: %w", env.PayloadRef, err)
 	}
 
-	var execResp ExecutionResponse
-	if err := json.Unmarshal(data, &execResp); err != nil || execResp.FinalizedContent == "" {
-		var decRec decision.DecisionRecord
-		if json.Unmarshal(data, &decRec) == nil && decRec.Rationale != "" {
-			execResp.FinalizedContent = decRec.Rationale
-		} else {
-			execResp.FinalizedContent = string(data)
-		}
+	commMsg, err := boundary.Unmarshal(data)
+	if err != nil || commMsg == nil {
+		return fmt.Errorf("realization: failed to unmarshal CommunicationMessage from payload: %w", err)
 	}
-	if execResp.ParentRef == "" {
-		execResp.ParentRef = env.ParentRef
+
+	if commMsg.ParentRef == "" {
+		commMsg.ParentRef = env.ParentRef
 	}
-	if execResp.ParentRef == "" {
-		execResp.ParentRef = env.ID
+	if commMsg.ParentRef == "" {
+		commMsg.ParentRef = env.ID
 	}
-	if execResp.ResponseID == "" {
-		execResp.ResponseID = "exec-resp-" + env.ID
+	if commMsg.ResponseID == "" {
+		commMsg.ResponseID = "realized-resp-" + env.ID
 	}
 
 	devLog("Language Realization", "Building realization prompt")
-	prompt := BuildRealizationPrompt(execResp)
+	prompt := BuildRealizationPrompt(commMsg)
 
 	// Resolve the service lifecycle context before any I/O. The pipeline ctx
 	// carries Planning's 500ms per-request SLA, which will be expired long
@@ -222,8 +218,8 @@ func (s *Service) handleExecutionEnvelope(ctx context.Context, env communication
 
 	realized := RealizedOutput{
 		OutputID:         "rlz-" + time.Now().UTC().Format("20060102150405.000000"),
-		SourceResponseID: execResp.ResponseID,
-		ParentRef:        execResp.ParentRef,
+		SourceResponseID: commMsg.ResponseID,
+		ParentRef:        commMsg.ParentRef,
 		RealizedText:     realizedText,
 		CreatedAt:        time.Now().UTC(),
 	}
@@ -241,7 +237,7 @@ func (s *Service) handleExecutionEnvelope(ctx context.Context, env communication
 	outEnv, err := communication.NewEnvelopeBuilder().
 		WithSource(s.Name()).
 		WithTopic(communication.TopicActionExecution).
-		WithParentRef(execResp.ParentRef).
+		WithParentRef(commMsg.ParentRef).
 		WithPayloadRef(realizedRef).
 		WithModality("text").
 		Build()

@@ -98,6 +98,97 @@ const (
 	StrategyDynamicHybrid         StrategyIdentifier = "STRATEGY_DYNAMIC_HYBRID"
 )
 
+// --- Phase 2C Deliberative Structures ---
+
+// GoalState represents the lifecycle state of a SemanticGoal.
+type GoalState string
+
+const (
+	StateCreated              GoalState = "CREATED"
+	StateAnalyzing            GoalState = "ANALYZING"
+	StateDeliberating         GoalState = "DELIBERATING"
+	StateWaitingClarification GoalState = "WAITING_CLARIFICATION"
+	StateReady                GoalState = "READY"
+	StatePublished            GoalState = "PUBLISHED"
+	StatePlanned              GoalState = "PLANNED"
+	StateExecuting            GoalState = "EXECUTING"
+	StateCompleted            GoalState = "COMPLETED"
+	StateCancelled            GoalState = "CANCELLED"
+	StateFailed               GoalState = "FAILED"
+)
+
+// ComplexityLevel defines an estimated difficulty or cost scale.
+type ComplexityLevel string
+
+const (
+	ComplexityLow    ComplexityLevel = "LOW"
+	ComplexityMedium ComplexityLevel = "MEDIUM"
+	ComplexityHigh   ComplexityLevel = "HIGH"
+)
+
+// Constraint represents a logical bound.
+type Constraint struct {
+	Name     string `json:"name"`
+	Value    string `json:"value"`
+	Priority int    `json:"priority"` // Higher is more critical (e.g. 100 for Hard)
+}
+
+// Assumption represents a reasoning assumption.
+type Assumption struct {
+	Category string `json:"category"`
+	Details  string `json:"details"`
+}
+
+// Clarification represents a targeted question reasoning needs answered.
+type Clarification struct {
+	SlotToResolve string `json:"slot_to_resolve"`
+	Reason        string `json:"reason"`
+}
+
+// AlternativeEvaluation records the trace of generated alternatives.
+type AlternativeEvaluation struct {
+	AlternativeID        string   `json:"alternative_id"`
+	GenerationReason     string   `json:"generation_reason"`
+	Confidence           float64  `json:"confidence"`
+	GoalCompleteness     float64  `json:"goal_completeness"`
+	Tradeoffs            []string `json:"tradeoffs"`
+	SatisfiedConstraints []string `json:"satisfied_constraints"`
+	ViolatedConstraints  []string `json:"violated_constraints"`
+	EstimatedCost        float64  `json:"estimated_cost"`
+	EstimatedTimeMs      float64  `json:"estimated_time_ms"`
+	RiskLevel            string   `json:"risk_level"`
+	AcceptanceReason     string   `json:"acceptance_reason,omitempty"`
+	RejectionReason      string   `json:"rejection_reason,omitempty"`
+	DecisionHints        []string `json:"decision_hints"`
+}
+
+// RiskAssessment identifies hazards before execution.
+type RiskAssessment struct {
+	Category string `json:"category"` // e.g. MissingInfo, ConstraintConflict
+	Severity string `json:"severity"` // e.g. CRITICAL, WARNING, INFO
+	Details  string `json:"details"`
+}
+
+// DeliberationTrace provides explainability for reasoning.
+type DeliberationTrace struct {
+	Events []string `json:"events"`
+}
+
+// DeliberationEpisode represents one complete reasoning session.
+type DeliberationEpisode struct {
+	EpisodeID              string                  `json:"episode_id"`
+	SemanticFrameReference string                  `json:"semantic_frame_reference"`
+	GoalGraph              []*SemanticGoal         `json:"goal_graph"`
+	AlternativeEvaluations []AlternativeEvaluation `json:"alternative_evaluations"`
+	ConstraintEvaluations  []string                `json:"constraint_evaluations"`
+	RiskAssessments        []RiskAssessment        `json:"risk_assessments"`
+	AcceptedAssumptions    []string                `json:"accepted_assumptions"`
+	RejectedAssumptions    []string                `json:"rejected_assumptions"`
+	Trace                  *DeliberationTrace      `json:"trace"`
+	FinalGoalSelection     []string                `json:"final_goal_selection"` // List of GoalIDs
+	ReasoningConfidence    float64                 `json:"reasoning_confidence"`
+}
+
 // GoalKind represents the semantic category of the desired outcome deduced by Reasoning.
 // It describes the nature of the outcome and MUST NOT specify HOW Planning should achieve it.
 type GoalKind string
@@ -107,12 +198,13 @@ const (
 	GoalKindStateChange          GoalKind = "STATE_CHANGE"
 	GoalKindToolExecution        GoalKind = "TOOL_EXECUTION"
 	GoalKindInformationRetrieval GoalKind = "INFORMATION_RETRIEVAL"
+	GoalKindClarification        GoalKind = "CLARIFICATION"
 )
 
 // IsValid checks whether GoalKind is a known enum value.
 func (k GoalKind) IsValid() bool {
 	switch k {
-	case GoalKindCommunicative, GoalKindStateChange, GoalKindToolExecution, GoalKindInformationRetrieval:
+	case GoalKindCommunicative, GoalKindStateChange, GoalKindToolExecution, GoalKindInformationRetrieval, GoalKindClarification:
 		return true
 	default:
 		return false
@@ -123,12 +215,47 @@ func (k GoalKind) IsValid() bool {
 // It describes WHAT target state or proposition should become true and what domain
 // boundaries constrain it, cleanly decoupled from HOW Planning will achieve it.
 type SemanticGoal struct {
+	// --- Complete Semantic Identity ---
+	GoalID             string `json:"goal_id,omitempty"`
+	RootGoalID         string `json:"root_goal_id,omitempty"`
+	ParentGoalID       string `json:"parent_goal_id,omitempty"`
+	SemanticFrameID    string `json:"semantic_frame_id,omitempty"`
+	IntentNodeID       string `json:"intent_node_id,omitempty"`
+	ReasoningEpisodeID string `json:"reasoning_episode_id,omitempty"`
+	ConversationID     string `json:"conversation_id,omitempty"`
+
+	// --- Core Definition ---
 	Kind          GoalKind          `json:"kind"`                     // Required: COMMUNICATIVE, STATE_CHANGE, TOOL_EXECUTION, INFORMATION_RETRIEVAL
 	Intent        string            `json:"intent"`                   // Required: Categorized intent (e.g. "greet_user", "set_alarm")
 	Target        string            `json:"target"`                   // Required: Target entity or domain (e.g. "user", "alarm_service")
 	DesiredState  map[string]string `json:"desired_state"`            // Required: Desired outcome conditions (e.g. {"acknowledged": "true"})
 	OperationHint string            `json:"operation_hint,omitempty"` // Optional hint for downstream template selection
-	Constraints   map[string]string `json:"constraints,omitempty"`    // Optional domain boundaries/invariants
+	Constraints   map[string]string `json:"constraints,omitempty"`    // Phase 2A Legacy/Simple constraints
+
+	Status           GoalState `json:"status,omitempty"`
+	Confidence       float64   `json:"confidence,omitempty"`
+	GoalCompleteness float64   `json:"goal_completeness,omitempty"`
+	Priority         int       `json:"priority,omitempty"`
+
+	// --- Reasoning Artefacts ---
+	SemanticConstraints  []Constraint `json:"semantic_constraints,omitempty"`
+	GoalAssumptions      []Assumption `json:"goal_assumptions,omitempty"`
+	AcceptedAssumptions  []string     `json:"accepted_assumptions,omitempty"`
+	RejectedAssumptions  []string     `json:"rejected_assumptions,omitempty"`
+	AlternativeGoals     []string     `json:"alternative_goals,omitempty"`
+	Dependencies         []string     `json:"dependencies,omitempty"`
+	RequiredCapabilities []string     `json:"required_capabilities,omitempty"`
+
+	// --- Execution Estimates ---
+	EstimatedComplexity ComplexityLevel `json:"estimated_complexity,omitempty"`
+	EstimatedCost       float64         `json:"estimated_cost,omitempty"`
+	EstimatedTimeMs     float64         `json:"estimated_time_ms,omitempty"`
+
+	// --- Upstream & Downstream Bridges ---
+	SemanticFrameReference string             `json:"semantic_frame_reference,omitempty"`
+	ReasoningTrace         *DeliberationTrace `json:"reasoning_trace,omitempty"`
+	DecisionHints          []string           `json:"decision_hints,omitempty"`
+	PlanningHints          []string           `json:"planning_hints,omitempty"`
 }
 
 // Validate checks structural requirements of SemanticGoal.
@@ -495,6 +622,7 @@ type ReasoningResult struct {
 	ReasoningTrace          []StageTraceLog        `json:"reasoning_trace"`
 	OfflineMode             bool                   `json:"offline_mode"`
 	ProcessedDurationMs     float64                `json:"processed_duration_ms"`
+	DeliberationEpisode     *DeliberationEpisode   `json:"deliberation_episode,omitempty"`
 }
 
 // Validate checks whether ReasoningResult satisfies all structural and beam invariants.

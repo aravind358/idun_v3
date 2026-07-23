@@ -53,7 +53,7 @@ func TestPublishDeliberativeDecision_SuccessAndRejection(t *testing.T) {
 		DecisionID:        "dec-ref",
 		DeliberationDepth: DepthReflexive,
 	}
-	_, err := PublishDeliberativeDecision(ctx, reflexiveRec, "", storer, publisher)
+	_, err := PublishDeliberativeDecision(ctx, reflexiveRec, nil, storer, publisher)
 	if err == nil {
 		t.Error("expected error when publishing reflexive record to workspace, got nil")
 	}
@@ -71,7 +71,7 @@ func TestPublishDeliberativeDecision_SuccessAndRejection(t *testing.T) {
 		Confidence:          0.95,
 	}
 
-	env, err := PublishDeliberativeDecision(ctx, deliberativeRec, "", storer, publisher)
+	env, err := PublishDeliberativeDecision(ctx, deliberativeRec, nil, storer, publisher)
 	if err != nil {
 		t.Fatalf("PublishDeliberativeDecision error: %v", err)
 	}
@@ -83,15 +83,19 @@ func TestPublishDeliberativeDecision_SuccessAndRejection(t *testing.T) {
 		t.Fatalf("expected exactly 1 published envelope, got %d", len(publisher.envelopes))
 	}
 
-	// 3. Verify Deliberative record with selectedDesc stores executionResponsePayload
-	envWithDesc, err := PublishDeliberativeDecision(ctx, deliberativeRec, "Hello, IDUN!", storer, publisher, "env-parent-1")
+	// 3. Verify Deliberative record with selectedDesc stores boundary.CommunicationMessage
+	envWithDesc, err := PublishDeliberativeDecision(ctx, deliberativeRec, &Candidate{Description: "Hello, IDUN!"}, storer, publisher, "env-parent-1")
 	if err != nil {
 		t.Fatalf("PublishDeliberativeDecision with selectedDesc error: %v", err)
 	}
 	if envWithDesc.PayloadRef != "storage://cas/test-dec-ref" {
 		t.Errorf("expected payload ref 'storage://cas/test-dec-ref', got '%s'", envWithDesc.PayloadRef)
 	}
+	if envWithDesc.PayloadModality != "communication-message" {
+		t.Errorf("expected payload modality 'communication-message', got '%s'", envWithDesc.PayloadModality)
+	}
 	if len(publisher.envelopes) != 2 {
 		t.Fatalf("expected 2 published envelopes, got %d", len(publisher.envelopes))
 	}
 }
+
