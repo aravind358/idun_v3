@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,9 +34,9 @@ func TestRegression_OneExecutionPath(t *testing.T) {
 	}
 	defer h.Stop()
 
-	var candidatePlanCount int
+	var candidatePlanCount int32
 	sub, err := h.Workspace().Subscribe(communication.TopicCandidatePlans, "TestSubscriber", func(_ context.Context, env communication.Envelope) error {
-		candidatePlanCount++
+		atomic.AddInt32(&candidatePlanCount, 1)
 		return nil
 	})
 	if err != nil {
@@ -45,8 +46,8 @@ func TestRegression_OneExecutionPath(t *testing.T) {
 
 	time.Sleep(10 * time.Second)
 
-	if candidatePlanCount != 1 {
-		t.Errorf("Regression Failure: expected exactly 1 TopicCandidatePlans envelope for one input, got %d", candidatePlanCount)
+	if atomic.LoadInt32(&candidatePlanCount) != 1 {
+		t.Errorf("Regression Failure: expected exactly 1 TopicCandidatePlans envelope for one input, got %d", atomic.LoadInt32(&candidatePlanCount))
 	}
 }
 

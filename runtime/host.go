@@ -15,6 +15,8 @@ import (
 	"idun/core/memory"
 	"idun/core/scheduler"
 	"idun/core/storage"
+	"idun/capabilities"
+	"idun/capabilities/native"
 	"idun/intelligence/attention"
 	"idun/intelligence/calibration"
 	"idun/intelligence/communication"
@@ -149,6 +151,10 @@ type RuntimeHost struct {
 	permissionSvc *kernel.PermissionEngine
 	constGate     *constitution.Gate
 	calibSvc      *calibration.Service
+
+	// Capability instances
+	capManager capabilities.CapabilityManager
+	capHandler *capabilities.ActionExecutionHandler
 
 	// Workspace & Cognitive instances
 	workspaceSvc *workspace.Engine
@@ -320,6 +326,16 @@ func (h *RuntimeHost) Build() error {
 	h.constGate = constitution.NewGate()
 	_ = h.constGate.RegisterRule(constitution.NewMaxUrgencyEscalationRule(99))
 	h.calibSvc = calibration.NewService()
+
+	// Capability framework initialization
+	capRegistry := capabilities.NewRegistry()
+	capResolver := capabilities.NewResolver(capRegistry)
+	capLifecycle := capabilities.NewLifecycleManager(capRegistry)
+	h.capManager = capabilities.NewManager(capRegistry, capResolver, capLifecycle)
+	if err := native.LoadNativeCapabilities(capRegistry); err != nil {
+		return fmt.Errorf("failed to load native capabilities: %w", err)
+	}
+	h.capHandler = capabilities.NewActionExecutionHandler(h.capManager, &payloadStorerAdapter{store: storeSvc})
 
 	h.workspaceSvc = workspace.NewEngine()
 	h.attentionSvc = attention.NewService(
@@ -507,6 +523,13 @@ func (h *RuntimeHost) Wire() error {
 		sub, err := h.workspaceSvc.Subscribe(communication.TopicPerception, "runtime-perception-bridge", func(ctx context.Context, env communication.Envelope) error {
 			return nil
 		})
+		if err == nil && sub != nil {
+			h.subs = append(h.subs, sub)
+		}
+	}
+
+	if h.workspaceSvc != nil && h.capHandler != nil {
+		sub, err := h.workspaceSvc.Subscribe(communication.TopicActionExecution, "capability-execution-handler", h.capHandler.HandleActionExecution)
 		if err == nil && sub != nil {
 			h.subs = append(h.subs, sub)
 		}

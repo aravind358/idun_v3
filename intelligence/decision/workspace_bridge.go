@@ -98,13 +98,14 @@ func PublishDeliberativeDecision(
 				}
 				if json.Unmarshal([]byte(rgStr), &rg) == nil {
 					commMsg.Intent = rg.Intent
-					for k, v := range rg.Constraints {
-						if strings.HasPrefix(k, "slot_") {
-							commMsg.Slots = append(commMsg.Slots, boundary.Slot{
-								Name:  strings.TrimPrefix(k, "slot_"),
-								Value: v,
-							})
-						}
+					fmt.Printf("[Decision Debug] Extracted ResolvedGoal.Intent: %s\n", commMsg.Intent)
+				}
+				for k, v := range rg.Constraints {
+					if strings.HasPrefix(k, "slot_") {
+						commMsg.Slots = append(commMsg.Slots, boundary.Slot{
+							Name:  strings.TrimPrefix(k, "slot_"),
+							Value: v,
+						})
 					}
 				}
 			}
@@ -128,14 +129,20 @@ func PublishDeliberativeDecision(
 			}
 		}
 
+		// TODO: This legacy string-parsing fallback will be removed after verifying all
+		// producers correctly populate ResolvedGoal.
 		if commMsg.Intent == "" || commMsg.Intent == "inform" {
 			if idx := strings.Index(selectedCand.Description, "for intent \""); idx != -1 {
 				sub := selectedCand.Description[idx+len("for intent \""):]
 				if endIdx := strings.Index(sub, "\""); endIdx != -1 {
 					commMsg.Intent = sub[:endIdx]
+					fmt.Printf("[Decision] WARN: Fallback string extraction used to recover intent: %s\n", commMsg.Intent)
 				}
 			}
 		}
+
+		fmt.Printf("[Decision Debug] Final Decision Intent: %s\n", commMsg.Intent)
+
 		if commMsg.Intent == "" {
 			commMsg.Intent = "inform"
 		}

@@ -494,3 +494,13 @@ The sequence of implementation for the Native Capability Framework:
   - New provider implementations: Allowed
   - Deferred TODO implementation: Allowed
   - Architectural redesign: Not allowed without a major version revision
+
+---
+
+## 25. Phase 6 Executive Runtime Improvements
+
+### Expand DAG Traversal Test Cases
+- **Priority**: Low
+- **Status**: Future Work
+- **Reason**: The concurrent `DAGExecutor` requires exhaustive parallel testing.
+- **Desired implementation**: Create more exhaustive test cases in `engine_test.go` using manually constructed `ExecutionPlan` graphs to verify complex parallel traversal, dependencies, and graceful degradation on physical failure without full `planning/v3` mocking overhead.
