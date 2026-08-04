@@ -1,0 +1,19 @@
+Input: "Shut down the computer"
+↓
+Grammar (Matches System Control syntax)
+↓
+Understanding (Extracts: system_shutdown, op=shut down)
+↓
+Planning (Resolves intent to app-system-1)
+↓
+Executive (Routes parameters)
+↓
+Application Capability (app-system-1 translates to OperationShutdown)
+↓
+Policy Layer (PermissionPolicy evaluates operation=shutdown against blocklists -> GRANTED)
+↓
+Platform Capability Check (checkPermission verifies capability is available -> PASSED)
+↓
+Native Capability (sys-native-system)
+↓
+Result (Executes OS Shutdown)
