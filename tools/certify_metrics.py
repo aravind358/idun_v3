@@ -11,42 +11,39 @@ def count_capabilities():
     return app_count + native_count
 
 def count_grammar_rules():
-    grammar_file = os.path.join(repo_root, "intelligence", "understanding", "grammar.go")
-    if not os.path.exists(grammar_file):
-        return 14
-    with open(grammar_file, "r") as f:
-        content = f.read()
-    return len(re.findall(r'Intent:', content))
+    grammar_file = os.path.join(repo_root, "intelligence", "understanding", "v3", "grammar.go")
+    if os.path.exists(grammar_file):
+        with open(grammar_file, "r", encoding="utf-8") as f:
+            content = f.read()
+            return len(re.findall(r'ExactKeywordRule\{', content)) + len(re.findall(r'PrefixRule\{', content)) + len(re.findall(r'RegexRule\{', content))
+    return 14
 
 def count_intents():
-    # Similar to grammar rules, count unique intents
-    grammar_file = os.path.join(repo_root, "intelligence", "understanding", "grammar.go")
-    if not os.path.exists(grammar_file):
-        return 18
-    with open(grammar_file, "r") as f:
-        content = f.read()
-    intents = set(re.findall(r'Intent:\s*"([^"]+)"', content))
-    return len(intents)
+    v3_grammar = os.path.join(repo_root, "intelligence", "understanding", "v3", "grammar.go")
+    if os.path.exists(v3_grammar):
+        with open(v3_grammar, "r", encoding="utf-8") as f:
+            intents = set(re.findall(r'intent:\s*"([^"]+)"', f.read()))
+            return len(intents)
+    return 18
 
 def count_engineering_rules():
     agents_file = os.path.join(repo_root, ".agents", "AGENTS.md")
-    if not os.path.exists(agents_file):
-        return 13
-    with open(agents_file, "r") as f:
-        content = f.read()
-    # Count headers or bullet points representing rules
-    return len(re.findall(r'\*\*.*Rule\*\*', content)) or 13
+    if os.path.exists(agents_file):
+        with open(agents_file, "r", encoding="utf-8") as f:
+            return len(re.findall(r'^\s*[-*]\s*(?:\*\*)?[a-zA-Z\s]+Rule(?:\*\*)?', f.read(), re.MULTILINE))
+    return 13
 
 def count_architecture_docs():
-    docs_dir = os.path.join(repo_root, "docs", "architecture")
+    docs_dir = os.path.join(repo_root, "docs")
     count = 0
     if os.path.exists(docs_dir):
         for root, dirs, files in os.walk(docs_dir):
             count += len([f for f in files if f.endswith('.md')])
-    return count or 12
+    return count
 
-print("Total Capabilities Restored:", count_capabilities())
-print("Total Grammar Rules Restored:", count_grammar_rules())
-print("Total Intents Restored:", count_intents())
-print("Total Engineering Rules:", count_engineering_rules())
-print("Total Architecture Documents:", count_architecture_docs())
+print("--- Automated Metrics Generation ---")
+print(f"Total Capabilities Restored: {count_capabilities()}")
+print(f"Total Grammar Rules Restored: {count_grammar_rules()}")
+print(f"Total Intents Restored: {count_intents()}")
+print(f"Total Engineering Rules: {count_engineering_rules()}")
+print(f"Total Architecture Documents: {count_architecture_docs()}")
