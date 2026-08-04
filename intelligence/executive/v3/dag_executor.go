@@ -62,6 +62,9 @@ func (e *DAGExecutor) Execute(ctx context.Context, plan *v3.ExecutionPlan) (map[
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// Inject PlanIntent for placeholder capabilities that need original context
+	ctx = context.WithValue(ctx, "planIntent", plan.PlanIntent())
+
 	completedCount := 0
 	hasFailed := false
 	var impasseErr error
@@ -188,7 +191,17 @@ func (e *DAGExecutor) executeNode(ctx context.Context, node v3.PlanNode, wg *syn
 	}
 
 	// 2. Execute Physical Capability
+	fmt.Printf("\n[Executive Trace] Executing Capability %q with parameters:\n", capID)
+	for k, v := range node.BoundParams() {
+		fmt.Printf("    %s = %v\n", k, v)
+	}
+	fmt.Println()
 	payload, err := executor.Execute(ctx, node.BoundParams())
+	if err != nil {
+		fmt.Printf("[Executive Trace] Capability %q failed: %v\n", capID, err)
+	} else {
+		fmt.Printf("[Executive Trace] Capability %q succeeded. Result: %v\n", capID, payload)
+	}
 	duration := time.Since(start)
 
 	var outputRef string

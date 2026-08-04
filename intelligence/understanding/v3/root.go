@@ -21,8 +21,8 @@ type SemanticInterpretation struct {
 	entities             []Entity
 	references           []Reference
 	temporalAnchors      []TemporalAnchor
+	composedTimestamps   []string
 	openSlots            []string
-	statusReason         string
 	isConditional        bool
 	conditionClause      string
 	consequentClause     string
@@ -36,14 +36,9 @@ type SemanticInterpretation struct {
 	executionHints       ExecutionHints
 	assumptions          []Assumption
 	ambiguities          []Ambiguity
-	missingInformation   []string
-	completeness         float64
 	confidence           float64
-	
-	// Deprecated fields mapped for telemetry, isolated from semantic use
-	processedDurationMs float64
-	validationTrace     *ValidationTrace
-	confidenceTrace     []string
+	goalIndex            int
+	totalGoals           int
 }
 
 // IsImmutable satisfies foundation.Immutable.
@@ -63,8 +58,8 @@ func (s *SemanticInterpretation) Topics() []string                          { t 
 func (s *SemanticInterpretation) Entities() []Entity                        { e := make([]Entity, len(s.entities)); copy(e, s.entities); return e }
 func (s *SemanticInterpretation) References() []Reference                   { r := make([]Reference, len(s.references)); copy(r, s.references); return r }
 func (s *SemanticInterpretation) TemporalAnchors() []TemporalAnchor         { t := make([]TemporalAnchor, len(s.temporalAnchors)); copy(t, s.temporalAnchors); return t }
+func (s *SemanticInterpretation) ComposedTimestamps() []string              { c := make([]string, len(s.composedTimestamps)); copy(c, s.composedTimestamps); return c }
 func (s *SemanticInterpretation) OpenSlots() []string                       { o := make([]string, len(s.openSlots)); copy(o, s.openSlots); return o }
-func (s *SemanticInterpretation) StatusReason() string                      { return s.statusReason }
 func (s *SemanticInterpretation) IsConditional() bool                       { return s.isConditional }
 func (s *SemanticInterpretation) ConditionClause() string                   { return s.conditionClause }
 func (s *SemanticInterpretation) ConsequentClause() string                  { return s.consequentClause }
@@ -78,10 +73,6 @@ func (s *SemanticInterpretation) DialoguePosition() DialoguePosition        { re
 func (s *SemanticInterpretation) ExecutionHints() ExecutionHints            { return s.executionHints }
 func (s *SemanticInterpretation) Assumptions() []Assumption                 { a := make([]Assumption, len(s.assumptions)); copy(a, s.assumptions); return a }
 func (s *SemanticInterpretation) Ambiguities() []Ambiguity                  { a := make([]Ambiguity, len(s.ambiguities)); copy(a, s.ambiguities); return a }
-func (s *SemanticInterpretation) MissingInformation() []string              { m := make([]string, len(s.missingInformation)); copy(m, s.missingInformation); return m }
-func (s *SemanticInterpretation) Completeness() float64                     { return s.completeness }
 func (s *SemanticInterpretation) Confidence() float64                       { return s.confidence }
-
-func (s *SemanticInterpretation) ProcessedDurationMs() float64              { return s.processedDurationMs }
-func (s *SemanticInterpretation) ValidationTrace() *ValidationTrace         { return s.validationTrace }
-func (s *SemanticInterpretation) ConfidenceTrace() []string                 { c := make([]string, len(s.confidenceTrace)); copy(c, s.confidenceTrace); return c }
+func (s *SemanticInterpretation) GoalIndex() int                            { return s.goalIndex }
+func (s *SemanticInterpretation) TotalGoals() int                           { return s.totalGoals }

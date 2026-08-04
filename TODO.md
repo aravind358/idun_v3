@@ -87,6 +87,10 @@ Runtime Investigation Verdict
 - **Description**: Determine whether Understanding already produces enough structured semantic information to support the future Semantic Response architecture. Specifically investigate whether the following already exist internally: `Intent`, `Entities`, `Slots`, `Confidence`, `Context`, `SemanticFrame`, `Metadata`.
 - **Current implementation**: `SpeculativeEvaluator` and `GrammarSpecialist` (`speculative.go`) parse user text into `SemanticFrame` structures containing `Intent`, `Slots`, and confidence scores during initial perception.
 - **Investigation**: Identify what already exists inside `SemanticFrame` and perception structures, what is missing, what requires only wiring, and what requires new implementation. The goal is to maximize reuse of the existing Understanding architecture rather than redesigning it. Do not modify code. Do not implement any new features. Produce recommendations only.
+- [ ] Add rigorous benchmark suite for new Neural Classifier model (`understanding/v3/neural.go`)
+- [ ] Implement `EntityTask` semantic mapping for future reminder/task integration
+- [ ] **app-calc-1**: Extend `app-calc-1` to support complex arithmetic expressions while preserving the existing semantic contract. (Future capability enhancement, not a Phase 4 restoration defect)
+- [ ] **app-reminder-1**: Extend `sys-native-1` scheduler to support non-RFC3339 temporal formats if needed, though temporal normalization should ideally handle all conversions.
 - **Planned architecture**: Upstream `Understanding` outputs cleanly structured semantic attributes (`Intent`, `Entities`, `Slots`, `Context`) that flow through `Reasoning` and `Decision` into the eventual Semantic Response object without data loss.
 - **Future implementation**: Connect validated `Understanding` semantic outputs to downstream structures once investigation recommendations are approved.
 - **Notes**: Maintain strict documentation rules: clearly distinguish between what currently exists (`SemanticFrame`), what is under investigation, and what is planned for future implementation. Do not describe planned architecture as if it already exists.
@@ -124,6 +128,15 @@ Runtime Investigation Verdict
 - **Reason**: While deterministic specialists struggle with open-ended ambiguity detection, deliberative LLM workers inherently detect ambiguities and make assumptions; these should be serialized into the Phase 2B models rather than flattened.
 - **Affected Component**: `intelligence/understanding/deliberative.go`
 - **Recommended Future Phase**: Phase 2C
+
+### Implement Deferred Normalizers
+- **Priority**: Medium
+- **Status**: Future Work
+- **Category**: Understanding
+- **Description**: Implement `number.go` and `unit.go` normalizers.
+- **Reason**: These were deferred during Phase 4B.4 (Temporal Processing) to maintain focus on temporal objects, but will be needed for comprehensive semantic object normalization.
+- **Affected Component**: `intelligence/understanding/v3/normalizers/`
+- **Recommended Future Phase**: Phase 4B.5
 
 ---
 
@@ -504,3 +517,393 @@ The sequence of implementation for the Native Capability Framework:
 - **Status**: Future Work
 - **Reason**: The concurrent `DAGExecutor` requires exhaustive parallel testing.
 - **Desired implementation**: Create more exhaustive test cases in `engine_test.go` using manually constructed `ExecutionPlan` graphs to verify complex parallel traversal, dependencies, and graceful degradation on physical failure without full `planning/v3` mocking overhead.
+
+---
+
+## 26. Presentation Layer Improvements
+
+### Template Caching (Deterministic Engine)
+- **Priority**: Medium
+- **Status**: Future Work
+- **Reason**: `presentation/deterministic/engine.go` currently calls `template.ParseFiles(tmplPath)` on every `Realize()` invocation, reading from disk on each request. For high-frequency queries this causes avoidable filesystem I/O on every realization cycle.
+- **Current implementation**: `Engine.Realize()` → `template.ParseFiles(tmplPath)` → render → return. No caching exists.
+- **Desired implementation**: Load and parse all templates once during `NewEngine()` startup (or an explicit `Load()` call). Cache the parsed `*template.Template` values in a `map[string]*template.Template` protected by a read lock. On `Realize()`, look up the pre-parsed template from the map instead of reading disk.
+- **Notes**: The cache is read-only after startup — no locking overhead during execution. Preserve the ability to reload templates for development hot-reload scenarios via an explicit method.
+
+### ResponseType Constants
+- **Priority**: Medium
+- **Status**: Future Work
+- **Reason**: String literals such as `"time"`, `"calculator"`, `"notes"` are currently scattered across capability `Execute()` functions. Typos in any one site silently break the deterministic routing path without compile-time detection.
+- **Current implementation**: `ResponseType: "time"` hardcoded in `capabilities/native/time/capability.go`.
+- **Desired implementation**: Introduce a shared constants package (e.g., `capabilities/responsetypes/constants.go`) defining named constants:
+  ```go
+  const (
+      ResponseTypeTime       = "time"
+      ResponseTypeCalculator = "calculator"
+      ResponseTypeNotes      = "notes"
+  )
+  ```
+  All capabilities and template files should reference these constants.
+- **Notes**: Prevents typos, enables IDE navigation, and centralizes response type definitions across the codebase.
+
+### Output Formatting Helpers
+- **Priority**: Medium
+- **Status**: Future Work
+- **Reason**: Capabilities return raw structured data (e.g., `time.Time`, `int64`, `float64`). Currently templates must format these values inline using Go's default `{{.Field}}` rendering which produces machine-formatted strings (e.g., RFC3339 timestamps, raw float literals).
+- **Current implementation**: `time.tmpl` receives `CurrentTime` as a raw `time.Time` value and renders it using Go's default formatter.
+- **Desired implementation**: Introduce a `presentation/deterministic/helpers.go` package that registers reusable Go template functions:
+  - `formatTime` — locale-aware time display
+  - `formatDate` — day/month/year display
+  - `formatDuration` — human-readable duration (e.g., "2 hours 15 minutes")
+  - `formatFileSize` — byte count to human string (e.g., "1.4 MB")
+  - `formatNumber` — locale-aware number formatting
+  Capabilities continue returning raw structured data. All formatting logic belongs in the realization layer.
+- **Notes**: Template functions must be registered on the `template.FuncMap` before `Execute()` is called.
+
+---
+
+## 27. Localization & Architecture Evolution
+
+### Template Localization
+- **Priority**: Low
+- **Status**: Future Work
+- **Reason**: The current template repository (`presentation/router/templates/`) stores a single flat directory of response templates with no language awareness. Future users in non-English locales would receive `en-US`-formatted responses.
+- **Current implementation**: Single template directory, e.g., `data/runtime/templates/time.tmpl`.
+- **Desired implementation**: Restructure templates into language-tagged subdirectories:
+  ```
+  data/runtime/templates/
+      en/
+          time.tmpl
+          calculator.tmpl
+      hi/
+          time.tmpl
+      te/
+          time.tmpl
+  ```
+  The Deterministic Engine should accept a `language string` parameter and resolve the correct subdirectory. Capabilities remain completely unmodified.
+- **Notes**: Implement after at least 3 deterministic capabilities are stable.
+
+### World Pillar Refactor (Realization Consolidation)
+- **Priority**: Low
+- **Status**: Future Architecture Work
+- **Reason**: The `presentation/` layer (Router, Deterministic Engine, Generative Engine, interfaces, types) currently exists as a separate pillar for implementation convenience. Architecturally, these components are responsible for delivering final output to the user, which is the stated purpose of the World pillar.
+- **Current implementation**: `presentation/` and `world/` are separate packages. World only accepts finalized `RealizedOutput` envelopes.
+- **Desired implementation**: Once the overall presentation architecture is stable and at least 4 capabilities have been verified end-to-end, evaluate migrating `presentation/` components into the `world/` pillar as a structural consolidation. This is a source reorganization only — no behavioral changes.
+- **Notes**: **Do not implement now.** Do not merge until architecture is validated across multiple capability types. This is a structural cleanup, not a feature.
+
+---
+
+## Future Ontology Evolution (Post Phase 4B.3)
+
+These items represent architectural improvements for future phases or ontology evolution. They should not be implemented during Phase 4B.3.
+
+### TODO 1 — Move Beyond Slot-Name Classification
+- **Goal**: Classify semantic objects using grammar metadata (e.g., Semantic Hints attached to Grammar Rules) rather than relying on slot names.
+- **Current State**: Extractors use `switch slot.Name()`.
+- **Future State**: `Grammar Rule -> Semantic Hint -> Semantic Object`.
+
+### TODO 2 — Introduce EntityExpression
+- **Goal**: Map mathematical expressions to `EntityExpression` rather than `EntityNumber`.
+- **Current State**: `expression` slot maps to `EntityNumber`.
+- **Future State**: `Expression -> Reasoning / Calculator -> Result -> EntityNumber`.
+- **Reason**: `decision.Candidate` uses a stringly typed map (`map[string]string`) to pass `ResolvedGoal` and `PresentationDirectives` JSON strings down to the `WorkspaceBridge`.
+- **Desired implementation**: Refactor `Candidate` metadata to support typed any-values or natively embed presentation hints directly into a dedicated Phase 2B candidate structure to avoid marshal/unmarshal overhead.
+
+---
+
+## 19. Phase 3B Capability Framework Engineering Improvements
+
+### Capability Blueprint
+- **Priority**: Low
+- **Status**: Future Work
+- **Reason**: The standard internal structure of every capability needs to be formally documented to assist developers.
+- **Desired implementation**: Create a formal architecture blueprint describing the standard internal structure of every capability.
+
+### Engineering Standard v1.1
+- **Priority**: Low
+- **Status**: Future Work
+- **Reason**: The Capability Conformance Checklist requires periodic refinement.
+- **Desired implementation**: Update the Engineering Standard to include a Mandatory Provider Architecture section, Mandatory Capability Metrics section, Engineering Quality section, Observability section, and an Updated Version History.
+
+### Capability Generator
+- **Priority**: Low (after Phase 3B)
+- **Status**: Future Enhancement
+- **Reason**: Copying the template directory manually is repetitive and prone to search/replace errors.
+- **Desired implementation**: Create a command-line tool (e.g. `idun create capability Files`) that automatically creates a new capability from the Native Capability Template, generating the directory with all required scaffolding, tests, providers, metadata, metrics, lifecycle, permissions, and normalization already in place.
+
+---
+
+## 20. Native Files Capability Roadmap
+
+### Streaming File Operations
+- **Priority**: Medium
+- **Status**: Deferred
+- **Reason**: The current Files Capability loads file data directly during execution. Future versions should support efficient streaming for large files to avoid unnecessary memory consumption.
+- **Desired implementation**: Add Read Stream, Write Stream, Chunk Reader, and Chunk Writer. Future goals include supporting extremely large files, minimizing memory usage, progressive reads/writes, context cancellation, and configurable chunk sizes. Do NOT implement during Phase 3B.3.
+
+---
+
+## 21. Native Media Capability Roadmap
+
+### Media Session Manager
+- **Priority**: Medium
+- **Status**: Deferred
+- **Reason**: The current Media Capability executes playback and recording as independent operations. Future versions should support persistent media sessions.
+- **Desired implementation**: Add persistent playback and recording sessions, session lifecycle management, state tracking, concurrent sessions, and graceful cleanup of abandoned sessions. Do NOT implement during Phase 3B.6.
+
+### Hardware Capability Detection
+- **Priority**: Medium
+- **Status**: Deferred
+- **Reason**: Future versions of the Media Provider should expose the multimedia capabilities supported by the host hardware (e.g. microphones, hardware encoders/decoders).
+- **Desired implementation**: Add hardware capability discovery, runtime capability reporting, supported codec enumeration, and device feature reporting. Do NOT implement during Phase 3B.6.
+
+---
+
+## 22. Native Devices Capability Roadmap
+
+### Device Permission Cache
+- **Priority**: Low
+- **Status**: Deferred
+- **Reason**: Some operating systems repeatedly prompt users for permissions such as Camera, Microphone, Bluetooth, and Location. Future versions should maintain a temporary cache of permission states.
+- **Desired implementation**: Add caching of granted/denied permissions, expiration support, refresh mechanism, platform-specific adapters, and thread-safe cache. This must never bypass OS security. Do NOT implement during Phase 3B.7.
+
+---
+
+## 23. Phase 3B Capability Roadmap
+
+The sequence of implementation for the Native Capability Framework:
+1. **Phase 3B.1: Native System** (Completed)
+2. **Phase 3B.2: Native Files** (Completed)
+3. **Phase 3B.3: Native Communication** (Completed)
+4. **Phase 3B.4: Native Network** (Completed)
+5. **Phase 3B.5: Native Media** (Completed)
+6. **Phase 3B.6: Native Devices** (Completed)
+7. **Phase 3B.7: Native Automation** (Completed)
+
+*(Note: CategoryExternalServices remains for future plugins, and CategoryLocation is merged into CategoryDevicesSensors).*
+
+---
+
+## 24. Native Capability Framework Status
+
+### Platform Adapter Layer
+- **Priority**: Medium
+- **Status**: Deferred
+- **Reason**: The current Native Providers intentionally expose a platform-independent interface while many implementations remain stubbed. Future versions should isolate OS-specific implementations into dedicated layers (e.g. `providers/windows/`, `providers/linux/`).
+- **Desired implementation**: Separate platform-specific code from shared logic, minimize conditional compilation, simplify OS support, and allow independent evolution. This is a long-term enhancement and does NOT modify the current architecture. Do NOT begin implementation without authorization.
+
+### Layer Status
+- **Architecture**: FROZEN
+- **Implementation**: COMPLETE
+- **Modification Policy**:
+  - Bug fixes: Allowed
+  - Performance improvements: Allowed
+  - Platform adapters: Allowed
+  - New provider implementations: Allowed
+  - Deferred TODO implementation: Allowed
+  - Architectural redesign: Not allowed without a major version revision
+
+---
+
+## 25. Phase 6 Executive Runtime Improvements
+
+### Expand DAG Traversal Test Cases
+- **Priority**: Low
+- **Status**: Future Work
+- **Reason**: The concurrent `DAGExecutor` requires exhaustive parallel testing.
+- **Desired implementation**: Create more exhaustive test cases in `engine_test.go` using manually constructed `ExecutionPlan` graphs to verify complex parallel traversal, dependencies, and graceful degradation on physical failure without full `planning/v3` mocking overhead.
+
+---
+
+## 26. Presentation Layer Improvements
+
+### Template Caching (Deterministic Engine)
+- **Priority**: Medium
+- **Status**: Future Work
+- **Reason**: `presentation/deterministic/engine.go` currently calls `template.ParseFiles(tmplPath)` on every `Realize()` invocation, reading from disk on each request. For high-frequency queries this causes avoidable filesystem I/O on every realization cycle.
+- **Current implementation**: `Engine.Realize()` → `template.ParseFiles(tmplPath)` → render → return. No caching exists.
+- **Desired implementation**: Load and parse all templates once during `NewEngine()` startup (or an explicit `Load()` call). Cache the parsed `*template.Template` values in a `map[string]*template.Template` protected by a read lock. On `Realize()`, look up the pre-parsed template from the map instead of reading disk.
+- **Notes**: The cache is read-only after startup — no locking overhead during execution. Preserve the ability to reload templates for development hot-reload scenarios via an explicit method.
+
+### ResponseType Constants
+- **Priority**: Medium
+- **Status**: Future Work
+- **Reason**: String literals such as `"time"`, `"calculator"`, `"notes"` are currently scattered across capability `Execute()` functions. Typos in any one site silently break the deterministic routing path without compile-time detection.
+- **Current implementation**: `ResponseType: "time"` hardcoded in `capabilities/native/time/capability.go`.
+- **Desired implementation**: Introduce a shared constants package (e.g., `capabilities/responsetypes/constants.go`) defining named constants:
+  ```go
+  const (
+      ResponseTypeTime       = "time"
+      ResponseTypeCalculator = "calculator"
+      ResponseTypeNotes      = "notes"
+  )
+  ```
+  All capabilities and template files should reference these constants.
+- **Notes**: Prevents typos, enables IDE navigation, and centralizes response type definitions across the codebase.
+
+### Output Formatting Helpers
+- **Priority**: Medium
+- **Status**: Future Work
+- **Reason**: Capabilities return raw structured data (e.g., `time.Time`, `int64`, `float64`). Currently templates must format these values inline using Go's default `{{.Field}}` rendering which produces machine-formatted strings (e.g., RFC3339 timestamps, raw float literals).
+- **Current implementation**: `time.tmpl` receives `CurrentTime` as a raw `time.Time` value and renders it using Go's default formatter.
+- **Desired implementation**: Introduce a `presentation/deterministic/helpers.go` package that registers reusable Go template functions:
+  - `formatTime` — locale-aware time display
+  - `formatDate` — day/month/year display
+  - `formatDuration` — human-readable duration (e.g., "2 hours 15 minutes")
+  - `formatFileSize` — byte count to human string (e.g., "1.4 MB")
+  - `formatNumber` — locale-aware number formatting
+  Capabilities continue returning raw structured data. All formatting logic belongs in the realization layer.
+- **Notes**: Template functions must be registered on the `template.FuncMap` before `Execute()` is called.
+
+---
+
+## 27. Localization & Architecture Evolution
+
+### Template Localization
+- **Priority**: Low
+- **Status**: Future Work
+- **Reason**: The current template repository (`presentation/router/templates/`) stores a single flat directory of response templates with no language awareness. Future users in non-English locales would receive `en-US`-formatted responses.
+- **Current implementation**: Single template directory, e.g., `data/runtime/templates/time.tmpl`.
+- **Desired implementation**: Restructure templates into language-tagged subdirectories:
+  ```
+  data/runtime/templates/
+      en/
+          time.tmpl
+          calculator.tmpl
+      hi/
+          time.tmpl
+      te/
+          time.tmpl
+  ```
+  The Deterministic Engine should accept a `language string` parameter and resolve the correct subdirectory. Capabilities remain completely unmodified.
+- **Notes**: Implement after at least 3 deterministic capabilities are stable.
+
+### World Pillar Refactor (Realization Consolidation)
+- **Priority**: Low
+- **Status**: Future Architecture Work
+- **Reason**: The `presentation/` layer (Router, Deterministic Engine, Generative Engine, interfaces, types) currently exists as a separate pillar for implementation convenience. Architecturally, these components are responsible for delivering final output to the user, which is the stated purpose of the World pillar.
+- **Current implementation**: `presentation/` and `world/` are separate packages. World only accepts finalized `RealizedOutput` envelopes.
+- **Desired implementation**: Once the overall presentation architecture is stable and at least 4 capabilities have been verified end-to-end, evaluate migrating `presentation/` components into the `world/` pillar as a structural consolidation. This is a source reorganization only — no behavioral changes.
+- **Notes**: **Do not implement now.** Do not merge until architecture is validated across multiple capability types. This is a structural cleanup, not a feature.
+
+---
+
+## Future Ontology Evolution (Post Phase 4B.3)
+
+These items represent architectural improvements for future phases or ontology evolution. They should not be implemented during Phase 4B.3.
+
+### TODO 1 — Move Beyond Slot-Name Classification
+- **Goal**: Classify semantic objects using grammar metadata (e.g., Semantic Hints attached to Grammar Rules) rather than relying on slot names.
+- **Current State**: Extractors use `switch slot.Name()`.
+- **Future State**: `Grammar Rule -> Semantic Hint -> Semantic Object`.
+
+### TODO 2 — Introduce EntityExpression
+- **Goal**: Map mathematical expressions to `EntityExpression` rather than `EntityNumber`.
+- **Current State**: `expression` slot maps to `EntityNumber`.
+- **Future State**: `Expression -> Reasoning / Calculator -> Result -> EntityNumber`.
+
+### TODO 3 — Introduce EntityCommand
+- **Goal**: Map executable commands (e.g., shutdown, restart, delete, copy, move, lock) to `EntityCommand`.
+- **Current State**: `operation` slot maps to `EntityUnknown`.
+
+### TODO 4 — Refine Document Representation
+- **Goal**: Evolve `EntityDocument` to explicitly handle structured documents.
+- **Future State**: `EntityDocument` containing `EntityDocumentTitle` and `EntityDocumentBody`.
+- **Current State**: Both `title` and `content` map directly to `EntityDocument`.
+
+### TODO 5 — Implement Additional Normalizers
+- **Goal**: Expand the `normalizers` package beyond temporal normalization.
+- **Planned Files**: 
+  - `normalizers/number.go` (normalize text to numeric values)
+  - `normalizers/unit.go` (normalize "kilometers" to standard SI units)
+  - `normalizers/expression.go` (normalize math expressions)
+- **Status**: Deferred to post-Phase 4B.4.
+
+### Replace mock.capability with True Communicative Capabilities
+- **Priority**: Low
+- **Status**: Future Architecture Work
+- **Reason**: The Planning and Executive V3 boundaries currently rely on a mock.capability placeholder to route purely communicative intents (e.g., greet_user, query_identity) to the generative realization engine without triggering standard OS execution flows. 
+- **Desired implementation**: In future phases (e.g., Chit-Chat Module / Chit-Chat Capability), replace the mock.capability injection in planning/v3/legacy_adapters.go with actual semantic mappings to a dedicated communicative capability. This capability will naturally produce the capabilities.Generative realization response currently spoofed by MockCommunicativeExecutor.
+- **Notes**: Must not change Understanding, Planning, or Realization layers. This is purely an Executive/Capability-level migration.
+
+## Post-Restoration Governance Enhancements (Phase 5.x)
+
+### Phase 5.x — Restoration Traceability Matrix
+**Objective**: Introduce a formal Traceability Matrix linking every restored artifact across the architecture.
+
+**Tasks**:
+- Generate a Traceability Matrix linking:
+  - Grammar Rules
+  - Intents
+  - Planning Mappings
+  - Application Capabilities
+  - Native Capabilities
+  - Verification Status
+- Detect orphaned or undocumented restoration artifacts.
+- Use the matrix for future architectural audits and regression analysis.
+
+### Phase 5.x — Architectural Exception Register
+**Objective**: Maintain a centralized register of intentional architectural limitations.
+
+**Tasks**:
+For each exception, record:
+- Component
+- Reason
+- Classification
+- Future Phase
+- Status
+
+*Example entries*:
+- Complex calculator expressions
+- Reminder scheduler RFC3339 limitation
+- Future temporal enhancements
+- Future Unified Policy Engine migration
+
+This register should clearly distinguish intentional MVP limitations from implementation defects.
+
+### Phase 5.x — Repository Certification Baseline
+**Objective**: Strengthen long-term auditability by introducing repository-level certification baselines.
+
+**Tasks**:
+- Create permanent Git tags for certified architectural baselines.
+- Record repository commit hashes in certification artifacts.
+- Allow future audits to compare against exact certified repository snapshots.
+
+### Phase 5.x — Change Control Framework
+**Objective**: Formalize architectural governance after restoration.
+
+**Tasks**:
+Introduce documented change-control procedures covering:
+- Architectural review requirements
+- Component impact analysis
+- Baseline modification process
+- Certification document revision policy
+
+This expands the current Change Control Statement into a complete governance framework.
+
+### Phase 5.x — Long-Term Certification Metrics
+**Objective**: Extend architectural certification beyond the restoration effort.
+
+Future certification metrics may include:
+- Traceability completeness
+- Architectural debt
+- Documentation coverage
+- Engineering rule coverage
+- Governance compliance
+- Long-term architectural drift analysis
+
+### Deferred Rationale
+These governance enhancements improve long-term maintainability, auditability, and architectural evolution. However, they are not prerequisites for certifying the deterministic restoration completed during Phase 4.
+
+Sprint 7 already verifies:
+- Restoration correctness
+- Architecture compliance
+- Runtime behavior
+- Documentation consistency
+- Engineering rule compliance
+- Security boundaries
+- Regression stability
+
+That evidence is sufficient to certify and freeze the Phase 4 restoration baseline.
+
+These governance enhancements are therefore intentionally scheduled for Phase 5.x, where the project transitions from restoration to long-term architectural evolution.

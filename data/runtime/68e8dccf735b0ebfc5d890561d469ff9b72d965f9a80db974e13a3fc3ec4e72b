@@ -1,0 +1,1 @@
+{"SpecVersion":"3.0","ArtifactID":"648c00bc-4f75-47d2-b849-498f6c755deb","ParentArtifactID":"a000084b-eb9d-4008-97d6-2d1307337552","Timestamp":"2026-08-03T00:35:57.1703246+05:30","PlanIntent":"","ExecutionClass":"","Nodes":[{"NodeID":"2a1b56db-13a1-4284-a480-0f18189ebdd7","Capability":"app-rem-1","BoundParams":{},"UserImpact":"NONE"}],"Edges":null}

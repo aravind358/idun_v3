@@ -4,6 +4,7 @@ import (
 	"context"
 	"idun/core/foundation"
 	understanding "idun/intelligence/understanding/v3"
+	"idun/intelligence/understanding/v3/ontology"
 	"testing"
 	"time"
 )
@@ -63,12 +64,12 @@ func TestOrchestrator_Reason(t *testing.T) {
 		CommunicativeAct(understanding.ActStatement).
 		IsConditional(true).
 		ConditionClause("if it is dark").
-		Entities([]understanding.Entity{understanding.NewEntity("Mughal Empire", understanding.EntityLocation, "", "", 0.9)}).
-		References([]understanding.Reference{understanding.NewReference("it", understanding.RefPronoun, "", "", false, 0.0)}).
+		Entities([]understanding.Entity{understanding.NewEntity("Mughal Empire", ontology.EntityLocation, "", "", 0.9)}).
+		References([]understanding.Reference{understanding.NewReference("it", ontology.RefPronoun, "", "", false, 0.0)}).
 		Build()
 
 	mem := &mockMemory{}
-	orc := NewOrchestrator(mem)
+	orc := NewOrchestrator(mem, nil)
 
 	ctxResult, err := orc.Reason(context.Background(), interp)
 	if err != nil {

@@ -13,6 +13,11 @@ func Synthesize(
 	primary Hypothesis,
 	ambSet []Hypothesis,
 	status InterpretationStatus,
+	entities []Entity,
+	refs []Reference,
+	anchors []TemporalAnchor,
+	composed []string,
+	secondary []SecondaryIntent,
 ) (*SemanticInterpretation, error) {
 	
 	// Create a new cognitive artifact ID
@@ -29,13 +34,13 @@ func Synthesize(
 		PrimaryHypothesis(primary).
 		AmbiguitySet(ambSet).
 		Confidence(primary.Confidence()).
-		Completeness(1.0). // default mock value
 		CompoundIntentCount(1). // default mock value
-		CommunicativeAct(ActConversation) // default mock value
-
-	// In a real implementation, Topics, Entities, References, etc., would be mapped from
-	// the primary Hypothesis slots or other outputs from the orchestrator logic.
-	// For Phase 2 (Architecture validation), we ensure valid default states.
+		CommunicativeAct(ActConversation). // default mock value
+		Entities(entities).
+		References(refs).
+		TemporalAnchors(anchors).
+		ComposedTimestamps(composed).
+		SecondaryIntents(secondary)
 
 	if status == StatusFailed {
 		builder.PrimaryIntent("unresolved_intent")

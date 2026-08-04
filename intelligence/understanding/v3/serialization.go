@@ -6,6 +6,7 @@ import (
 	"time"
 	
 	"idun/core/foundation"
+	"idun/intelligence/understanding/v3/ontology"
 )
 
 // To handle private fields, we use mirroring structs for JSON serialization.
@@ -24,25 +25,25 @@ type jsonHypothesis struct {
 	Slots            []jsonSlot  `json:"Slots"`
 }
 type jsonEntity struct {
-	Surface       string     `json:"Surface"`
-	Type          EntityType `json:"Type"`
-	CanonicalName string     `json:"CanonicalName"`
-	GroundingID   string     `json:"GroundingID"`
-	Confidence    float64    `json:"Confidence"`
+	Surface       string              `json:"Surface"`
+	Type          ontology.EntityType `json:"Type"`
+	CanonicalName string              `json:"CanonicalName"`
+	GroundingID   string              `json:"GroundingID"`
+	Confidence    float64             `json:"Confidence"`
 }
 type jsonReference struct {
-	Surface           string        `json:"Surface"`
-	Type              ReferenceType `json:"Type"`
-	AnchorHint        string        `json:"AnchorHint"`
-	AnchorGroundingID string        `json:"AnchorGroundingID"`
-	Resolved          bool          `json:"Resolved"`
-	Confidence        float64       `json:"Confidence"`
+	Surface           string                 `json:"Surface"`
+	Type              ontology.ReferenceType `json:"Type"`
+	AnchorHint        string                 `json:"AnchorHint"`
+	AnchorGroundingID string                 `json:"AnchorGroundingID"`
+	Resolved          bool                   `json:"Resolved"`
+	Confidence        float64                `json:"Confidence"`
 }
 type jsonTemporalAnchor struct {
-	Surface    string       `json:"Surface"`
-	Type       TemporalType `json:"Type"`
-	Normalized string       `json:"Normalized"`
-	Confidence float64      `json:"Confidence"`
+	Surface    string                `json:"Surface"`
+	Type       ontology.TemporalType `json:"Type"`
+	Normalized string                `json:"Normalized"`
+	Confidence float64               `json:"Confidence"`
 }
 type jsonSecondaryIntent struct {
 	Intent     string     `json:"Intent"`
@@ -109,8 +110,8 @@ type jsonSemanticInterpretation struct {
 	Entities             []jsonEntity           `json:"Entities"`
 	References           []jsonReference        `json:"References"`
 	TemporalAnchors      []jsonTemporalAnchor   `json:"TemporalAnchors"`
+	ComposedTimestamps   []string               `json:"ComposedTimestamps"`
 	OpenSlots            []string               `json:"OpenSlots"`
-	StatusReason         string                 `json:"StatusReason"`
 	IsConditional        bool                   `json:"IsConditional"`
 	ConditionClause      string                 `json:"ConditionClause"`
 	ConsequentClause     string                 `json:"ConsequentClause"`
@@ -124,12 +125,42 @@ type jsonSemanticInterpretation struct {
 	ExecutionHints       jsonExecutionHints     `json:"ExecutionHints"`
 	Assumptions          []jsonAssumption       `json:"Assumptions"`
 	Ambiguities          []jsonAmbiguity        `json:"Ambiguities"`
-	MissingInformation   []string               `json:"MissingInformation"`
-	Completeness         float64                `json:"Completeness"`
 	Confidence           float64                `json:"Confidence"`
-	ProcessedDurationMs  float64                `json:"ProcessedDurationMs"`
-	ValidationTrace      *jsonValidationTrace   `json:"ValidationTrace"`
-	ConfidenceTrace      []string               `json:"ConfidenceTrace"`
+}
+
+type jsonUnderstandingBatch struct {
+	ArtifactID        string                    `json:"ArtifactID"`
+	ParentArtifactID  string                    `json:"ParentArtifactID,omitempty"`
+	EnvelopeID        string                    `json:"EnvelopeID"`
+	Timestamp         time.Time                 `json:"Timestamp"`
+	OriginalUtterance string                    `json:"OriginalUtterance"`
+	Interpretations   []*SemanticInterpretation `json:"Interpretations"`
+}
+
+func (b *UnderstandingBatch) MarshalJSON() ([]byte, error) {
+	j := jsonUnderstandingBatch{
+		ArtifactID:        string(b.artifactID),
+		ParentArtifactID:  string(b.parentArtifactID),
+		EnvelopeID:        string(b.envelopeID),
+		Timestamp:         time.Time(b.timestamp),
+		OriginalUtterance: b.originalUtterance,
+		Interpretations:   b.interpretations,
+	}
+	return json.Marshal(j)
+}
+
+func (b *UnderstandingBatch) UnmarshalJSON(data []byte) error {
+	var j jsonUnderstandingBatch
+	if err := json.Unmarshal(data, &j); err != nil {
+		return err
+	}
+	b.artifactID = foundation.ArtifactID(j.ArtifactID)
+	b.parentArtifactID = foundation.ParentArtifactID(j.ParentArtifactID)
+	b.envelopeID = foundation.EnvelopeID(j.EnvelopeID)
+	b.timestamp = foundation.Timestamp(j.Timestamp)
+	b.originalUtterance = j.OriginalUtterance
+	b.interpretations = j.Interpretations
+	return nil
 }
 
 func (s *SemanticInterpretation) MarshalJSON() ([]byte, error) {
@@ -149,17 +180,12 @@ func (s *SemanticInterpretation) MarshalJSON() ([]byte, error) {
 		PrimaryHypothesis:   marshalHypothesis(s.primaryHypothesis),
 		Topics:              s.topics,
 		OpenSlots:           s.openSlots,
-		StatusReason:        s.statusReason,
 		IsConditional:       s.isConditional,
 		ConditionClause:     s.conditionClause,
 		ConsequentClause:    s.consequentClause,
 		CompoundIntentCount: s.compoundIntentCount,
 		RequiresContext:     s.requiresContext,
-		MissingInformation:  s.missingInformation,
-		Completeness:        s.completeness,
 		Confidence:          s.confidence,
-		ProcessedDurationMs: s.processedDurationMs,
-		ConfidenceTrace:     s.confidenceTrace,
 		Polarity: jsonPolarity{
 			Negated:        s.polarity.negated,
 			NegationMarker: s.polarity.negationMarker,
@@ -203,6 +229,7 @@ func (s *SemanticInterpretation) MarshalJSON() ([]byte, error) {
 	for _, t := range s.temporalAnchors {
 		j.TemporalAnchors = append(j.TemporalAnchors, jsonTemporalAnchor{Surface: t.surface, Type: t.tType, Normalized: t.normalized, Confidence: t.confidence})
 	}
+	j.ComposedTimestamps = s.composedTimestamps
 	for _, si := range s.secondaryIntents {
 		jsi := jsonSecondaryIntent{Intent: si.intent, Topics: si.topics, Confidence: si.confidence}
 		for _, sl := range si.slots {
@@ -216,14 +243,7 @@ func (s *SemanticInterpretation) MarshalJSON() ([]byte, error) {
 	for _, a := range s.ambiguities {
 		j.Ambiguities = append(j.Ambiguities, jsonAmbiguity{AmbiguousSpan: a.ambiguousSpan, CandidateResolutions: a.candidateResolutions, Severity: a.severity})
 	}
-	if s.validationTrace != nil {
-		j.ValidationTrace = &jsonValidationTrace{
-			TypeValidation:         s.validationTrace.typeValidation,
-			ConstraintValidation:   s.validationTrace.constraintValidation,
-			RelationshipValidation: s.validationTrace.relationshipValidation,
-			TemporalValidation:     s.validationTrace.temporalValidation,
-		}
-	}
+
 
 	return json.Marshal(j)
 }
@@ -266,17 +286,12 @@ func (s *SemanticInterpretation) UnmarshalJSON(data []byte) error {
 	s.primaryHypothesis = unmarshalHypothesis(j.PrimaryHypothesis)
 	s.topics = j.Topics
 	s.openSlots = j.OpenSlots
-	s.statusReason = j.StatusReason
 	s.isConditional = j.IsConditional
 	s.conditionClause = j.ConditionClause
 	s.consequentClause = j.ConsequentClause
 	s.compoundIntentCount = j.CompoundIntentCount
 	s.requiresContext = j.RequiresContext
-	s.missingInformation = j.MissingInformation
-	s.completeness = j.Completeness
 	s.confidence = j.Confidence
-	s.processedDurationMs = j.ProcessedDurationMs
-	s.confidenceTrace = j.ConfidenceTrace
 
 	s.polarity = NewPolarity(j.Polarity.Negated, j.Polarity.NegationMarker)
 	s.sentiment = NewSentiment(j.Sentiment.Valence, j.Sentiment.Intensity, j.Sentiment.Markers)
@@ -284,10 +299,7 @@ func (s *SemanticInterpretation) UnmarshalJSON(data []byte) error {
 	s.dialoguePosition = NewDialoguePosition(j.DialoguePosition.TurnIndex, j.DialoguePosition.IsFollowUp, j.DialoguePosition.IsCorrection, j.DialoguePosition.IsNewTopic)
 	s.executionHints = NewExecutionHints(j.ExecutionHints.AppearsDeterministic, j.ExecutionHints.AppearsOpenEnded, j.ExecutionHints.RequiresExternalData, j.ExecutionHints.RequiresMemoryLookup)
 
-	if j.ValidationTrace != nil {
-		vt := NewValidationTrace(j.ValidationTrace.TypeValidation, j.ValidationTrace.ConstraintValidation, j.ValidationTrace.RelationshipValidation, j.ValidationTrace.TemporalValidation)
-		s.validationTrace = &vt
-	}
+
 
 	s.ambiguitySet = make([]Hypothesis, len(j.AmbiguitySet))
 	for i, a := range j.AmbiguitySet {
@@ -305,6 +317,7 @@ func (s *SemanticInterpretation) UnmarshalJSON(data []byte) error {
 	for i, t := range j.TemporalAnchors {
 		s.temporalAnchors[i] = NewTemporalAnchor(t.Surface, t.Type, t.Normalized, t.Confidence)
 	}
+	s.composedTimestamps = j.ComposedTimestamps
 	s.secondaryIntents = make([]SecondaryIntent, len(j.SecondaryIntents))
 	for i, si := range j.SecondaryIntents {
 		slots := make([]Slot, len(si.Slots))

@@ -425,7 +425,8 @@ func (s *Service) handleResponseEnvelope(ctx context.Context, env communication.
 		return nil
 	}
 
-	if s.waitForRealization.Load() && env.Source != "Presentation.LanguageRealization" {
+	// Wait for Presentation layer (either Legacy Realization or the new Router)
+	if s.waitForRealization.Load() && env.Source != "Presentation.LanguageRealization" && env.Source != "Presentation.Router" {
 		return nil
 	}
 
@@ -451,7 +452,7 @@ func (s *Service) handleResponseEnvelope(ctx context.Context, env communication.
 	latency := time.Since(entry.startTime)
 	interaction := entry.interaction
 
-	if env.Source == "Presentation.LanguageRealization" {
+	if env.Source == "Presentation.LanguageRealization" || env.Source == "Presentation.Router" {
 		devLog("World", "Received realized output")
 	} else {
 		devLog("World", "Received final output")

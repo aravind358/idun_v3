@@ -5,6 +5,9 @@ import (
 	"time"
 
 	"idun/capabilities"
+	nativefiles "idun/capabilities/native/files"
+	nativesystem "idun/capabilities/native/system"
+	nativetime "idun/capabilities/native/time"
 )
 
 // Define a simple helper to quickly generate placeholder capabilities.
@@ -30,23 +33,18 @@ func (p *placeholderCapability) Execute(ctx context.Context, req capabilities.Ca
 	return capabilities.CapabilityResult{
 		RequirementID: req.RequirementID,
 		Success:       true,
+		Realization:   capabilities.Generative,
 		Data:          map[string]interface{}{"status": "placeholder_executed", "category": p.Metadata().Category},
 		Duration:      1 * time.Millisecond,
 	}, nil
 }
 
 // LoadNativeCapabilities instantiates and registers the baseline V1 categories.
-func LoadNativeCapabilities(registry capabilities.CapabilityRegistry) error {
+func LoadNativeCapabilities(registry capabilities.CapabilityRegistry, deps NativeCapabilityDependencies) error {
 	caps := []capabilities.Capability{
-		buildPlaceholder("sys-core", "SystemProcess", capabilities.CategorySystem),
-		buildPlaceholder("fs-core", "FileSystemOps", capabilities.CategoryFiles),
-		buildPlaceholder("hw-sensors", "HardwareSensors", capabilities.CategoryDevicesSensors),
-
-		buildPlaceholder("comm-user", "UserNotifier", capabilities.CategoryCommunication),
-		buildPlaceholder("media-mgr", "MediaManager", capabilities.CategoryMedia),
-		buildPlaceholder("net-tcp", "NetworkSockets", capabilities.CategoryNetwork),
-		buildPlaceholder("ext-api", "ExternalIntegrations", capabilities.CategoryExternalServices),
-		buildPlaceholder("auto-webhook", "WebhookTriggers", capabilities.CategoryAutomation), // No conditional logic
+		nativetime.New(deps.Time),
+		nativesystem.New(nil, nativesystem.NewMockProvider(false), deps.Scheduler),
+		nativefiles.New(nil, nativefiles.NewNativeProvider()),
 	}
 
 	for _, c := range caps {

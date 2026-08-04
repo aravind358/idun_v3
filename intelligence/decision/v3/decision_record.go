@@ -60,6 +60,7 @@ type DecisionRecord struct {
 	policyPassed      bool
 	budgetPassed      bool
 	permissionsPassed bool
+	effectivePermissions []string
 	findings          []DecisionFinding
 }
 
@@ -78,6 +79,11 @@ func (d *DecisionRecord) SafetyPassed() bool           { return d.safetyPassed }
 func (d *DecisionRecord) PolicyPassed() bool           { return d.policyPassed }
 func (d *DecisionRecord) BudgetPassed() bool           { return d.budgetPassed }
 func (d *DecisionRecord) PermissionsPassed() bool      { return d.permissionsPassed }
+func (d *DecisionRecord) EffectivePermissions() []string {
+	cp := make([]string, len(d.effectivePermissions))
+	copy(cp, d.effectivePermissions)
+	return cp
+}
 func (d *DecisionRecord) Findings() []DecisionFinding {
 	cp := make([]DecisionFinding, len(d.findings))
 	copy(cp, d.findings)

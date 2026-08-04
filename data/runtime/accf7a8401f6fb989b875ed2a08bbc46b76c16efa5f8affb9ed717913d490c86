@@ -1,1 +1,0 @@
-{"FrameVersion":"2.0","EnvelopeID":"fb8bb06ec74b4f33de8357642de869ec","Status":"UNAMBIGUOUS","PrimaryHypothesis":{"Intent":"query_wellbeing","CalibratedConfidence":0.98,"SourceLayer":"Understanding.ReflexiveGrammar","Slots":[]},"AmbiguitySet":[],"ProcessedDurationMs":0.524}

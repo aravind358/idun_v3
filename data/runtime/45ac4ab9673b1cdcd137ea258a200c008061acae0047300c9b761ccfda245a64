@@ -1,1 +1,0 @@
-{"FrameVersion":"2.0","EnvelopeID":"813d33e2809489b2c2ac0ce8a3bb423d","Status":"FAILED_IMPASSE","PrimaryHypothesis":{"Intent":"unresolved_intent","CalibratedConfidence":0,"SourceLayer":"Understanding.ReflexiveGrammar","Slots":[]},"AmbiguitySet":[],"ProcessedDurationMs":5001.818}

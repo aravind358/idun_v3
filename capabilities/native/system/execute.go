@@ -48,10 +48,18 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 		data, execErr = c.executeCPU(ctx)
 	case OperationMemory:
 		data, execErr = c.executeMemory(ctx)
+	case OperationBattery:
+		data, execErr = c.executeBattery(ctx)
 	case OperationDisk:
 		data, execErr = c.executeDisk(ctx)
 	case OperationShutdown, OperationRestart, OperationSleep, OperationLock:
 		data, execErr = c.executePower(ctx, operation)
+	case OperationScheduleTask:
+		data, execErr = c.executeScheduleTask(ctx, req)
+	case OperationCancelTask:
+		data, execErr = c.executeCancelTask(ctx, req)
+	case OperationListTasks:
+		data, execErr = c.executeListTasks(ctx, req)
 	default:
 		execErr = fmt.Errorf("unknown operation: %s", operation)
 		c.metrics.RecordFailure(time.Since(start))

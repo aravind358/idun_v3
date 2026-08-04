@@ -18,18 +18,20 @@ type PlanNode struct {
 	nodeID      string
 	capability  CapabilityID
 	boundParams map[string]any
+	userImpact  string
 }
 
-func NewPlanNode(nodeID string, capID CapabilityID, params map[string]any) PlanNode {
+func NewPlanNode(nodeID string, capID CapabilityID, params map[string]any, impact string) PlanNode {
 	cp := make(map[string]any)
 	for k, v := range params {
 		cp[k] = v
 	}
-	return PlanNode{nodeID: nodeID, capability: capID, boundParams: cp}
+	return PlanNode{nodeID: nodeID, capability: capID, boundParams: cp, userImpact: impact}
 }
 
 func (p PlanNode) NodeID() string { return p.nodeID }
 func (p PlanNode) Capability() CapabilityID { return p.capability }
+func (p PlanNode) UserImpact() string { return p.userImpact }
 func (p PlanNode) BoundParams() map[string]any {
 	cp := make(map[string]any)
 	for k, v := range p.boundParams {
@@ -60,6 +62,10 @@ type ExecutionPlan struct {
 	envelopeID       foundation.EnvelopeID
 	timestamp        foundation.Timestamp
 
+	// Metadata
+	planIntent     string
+	executionClass string
+
 	// DAG
 	nodes []PlanNode
 	edges []Dependency
@@ -72,6 +78,8 @@ func (p *ExecutionPlan) ParentArtifactID() foundation.ParentArtifactID     { ret
 func (p *ExecutionPlan) EnvelopeID() foundation.EnvelopeID                 { return p.envelopeID }
 func (p *ExecutionPlan) Timestamp() foundation.Timestamp                   { return p.timestamp }
 func (p *ExecutionPlan) Version() foundation.Version                       { return foundation.Version(p.specVersion) }
+func (p *ExecutionPlan) PlanIntent() string                                { return p.planIntent }
+func (p *ExecutionPlan) ExecutionClass() string                            { return p.executionClass }
 
 // Field Getters
 func (p *ExecutionPlan) Nodes() []PlanNode {

@@ -2,6 +2,7 @@ package v3
 
 import (
 	"encoding/json"
+	"idun/intelligence/understanding/v3/ontology"
 	"testing"
 )
 
@@ -12,7 +13,6 @@ func TestSemanticInterpretation_Builder(t *testing.T) {
 		PrimaryIntent("book_flight").
 		CompoundIntentCount(1).
 		Confidence(0.95).
-		Completeness(1.0).
 		Build()
 
 	if err != nil {
@@ -58,7 +58,6 @@ func TestSemanticInterpretation_Serialization(t *testing.T) {
 		PrimaryIntent("book_flight").
 		CompoundIntentCount(1).
 		Confidence(0.85).
-		Completeness(1.0).
 		PrimaryHypothesis(NewHypothesis("book_flight", 0.85, 0.0, LayerNeuralClassifier, []Slot{
 			NewSlot("destination", "Paris", "loc-123", 0.9),
 		})).
@@ -66,7 +65,7 @@ func TestSemanticInterpretation_Serialization(t *testing.T) {
 			NewHypothesis("check_flight", 0.80, 0.05, LayerNeuralClassifier, []Slot{}),
 		}).
 		Entities([]Entity{
-			NewEntity("Paris", EntityLocation, "Paris, France", "loc-123", 0.95),
+			NewEntity("Paris", ontology.EntityLocation, "Paris, France", "loc-123", 0.95),
 		}).
 		Polarity(NewPolarity(true, "not")).
 		Build()

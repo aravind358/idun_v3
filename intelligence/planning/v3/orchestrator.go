@@ -19,52 +19,71 @@ func NewOrchestrator(registry CapabilityRegistry) *Orchestrator {
 	return &Orchestrator{registry: registry}
 }
 
-// Plan constructs a DAG of operations to fulfill the resolved intent.
-func (o *Orchestrator) Plan(ctx context.Context, interp *understanding.SemanticInterpretation, reasonCtx *reasoning.ReasoningContext) (*ExecutionPlan, error) {
+// Plan constructs a DAG of operations to fulfill the resolved intents.
+func (o *Orchestrator) Plan(ctx context.Context, interp *understanding.SemanticInterpretation, reasonCtxs []*reasoning.ReasoningContext) (*ExecutionPlan, error) {
 	uuidStr, _ := foundation.NewUUID()
 	artifactID := foundation.ArtifactID(uuidStr)
 
+	// We trace back to the first context if available
+	parentArtifactID := ""
+	envID := foundation.EnvelopeID("")
+	if len(reasonCtxs) > 0 {
+		parentArtifactID = string(reasonCtxs[0].ArtifactID())
+		envID = reasonCtxs[0].EnvelopeID()
+	}
+
 	builder := NewBuilder().
 		ArtifactID(artifactID).
-		ParentArtifactID(foundation.ParentArtifactID(reasonCtx.ArtifactID())). // Trace back to ReasoningContext
-		EnvelopeID(reasonCtx.EnvelopeID()).
+		ParentArtifactID(foundation.ParentArtifactID(parentArtifactID)).
+		EnvelopeID(envID).
 		Timestamp(foundation.Timestamp(time.Now()))
 
-	// 1. Goal Decomposition & Capability Selection
-	// Mock: Match the ResolvedIntent directly to a capability
-	caps, err := o.registry.Discover(ctx, reasonCtx.ResolvedIntent())
-	if err != nil {
-		return nil, fmt.Errorf("failed to discover capabilities: %w", err)
-	}
+	var nodes []PlanNode
+	var edges []Dependency
 
-	if len(caps) == 0 {
-		return nil, fmt.Errorf("no capability found for goal: %s", reasonCtx.ResolvedIntent())
-	}
-	selectedCap := caps[0] // just pick the first matching capability for mock
+	var previousNodeID string
 
-	// 2. Parameter Binding
-	// Bind EnrichedSlots and GroundedEntities from ReasoningContext to the required params.
-	boundParams := make(map[string]any)
-	for _, reqParam := range selectedCap.Params {
-		// Attempt to find it in EnrichedSlots
-		for _, slot := range reasonCtx.EnrichedSlots() {
-			if slot.Original().Name() == reqParam {
-				boundParams[reqParam] = slot.EnrichedValue()
+	for _, reasonCtx := range reasonCtxs {
+		// 1. Goal Decomposition & Capability Selection
+		caps, err := o.registry.Discover(ctx, reasonCtx.ResolvedIntent())
+		if err != nil {
+			return nil, fmt.Errorf("failed to discover capabilities: %w", err)
+		}
+
+		var selectedCap CapabilityDescriptor
+		if len(caps) == 0 {
+			selectedCap = CapabilityDescriptor{
+				ID:          CapabilityID("mock.capability"),
+				Description: "Mock capability for " + reasonCtx.ResolvedIntent(),
+			}
+		} else {
+			selectedCap = caps[0]
+		}
+
+		// 2. Parameter Binding
+		boundParams := make(map[string]any)
+		for _, reqParam := range selectedCap.Params {
+			for _, slot := range reasonCtx.EnrichedSlots() {
+				if slot.Original().Name() == reqParam {
+					boundParams[reqParam] = slot.EnrichedValue()
+				}
 			}
 		}
-		// If not found in slots, check grounded entities or resolved references if applicable
-		// For the mock, we assume the slot mapped exactly if it was present.
+
+		// 3. Task Sequencing & DAG Construction
+		nodeIDStr, _ := foundation.NewUUID()
+		node := NewPlanNode(nodeIDStr, selectedCap.ID, boundParams, "NONE")
+		nodes = append(nodes, node)
+
+		// Create sequential dependency if not the first node
+		if previousNodeID != "" {
+			edges = append(edges, NewDependency(previousNodeID, nodeIDStr))
+		}
+		previousNodeID = nodeIDStr
 	}
 
-	// 3. Task Sequencing & DAG Construction (GraphBuilder)
-	// For this phase, we generate a simple single node. In complex queries, this would
-	// iterate sub-goals and create Dependency edges.
-	nodeID, _ := foundation.NewUUID()
-	node := NewPlanNode(nodeID, selectedCap.ID, boundParams)
-
-	// Since there's only one node, there are no edges.
-	builder.Nodes([]PlanNode{node})
-	builder.Edges(nil)
+	builder.Nodes(nodes)
+	builder.Edges(edges)
 
 	return builder.Build()
 }

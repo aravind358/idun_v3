@@ -77,8 +77,11 @@ type ReasoningContext struct {
 	timestamp        foundation.Timestamp
 
 	// Ambiguity Collapse
-	resolvedIntent string
-	enrichedSlots  []EnrichedSlot
+	resolvedIntent     string
+	canProceed         bool
+	communicativeAct   understanding.CommunicativeAct
+	resolvedConfidence float64
+	enrichedSlots      []EnrichedSlot
 
 	// Grounding & Resolution
 	groundedEntities   []GroundedEntity
@@ -104,6 +107,9 @@ func (r *ReasoningContext) Version() foundation.Version                       { 
 
 // Field Getters
 func (r *ReasoningContext) ResolvedIntent() string { return r.resolvedIntent }
+func (r *ReasoningContext) CanProceed() bool       { return r.canProceed }
+func (r *ReasoningContext) CommunicativeAct() understanding.CommunicativeAct { return r.communicativeAct }
+func (r *ReasoningContext) ResolvedConfidence() float64 { return r.resolvedConfidence }
 func (r *ReasoningContext) EnrichedSlots() []EnrichedSlot {
 	cp := make([]EnrichedSlot, len(r.enrichedSlots))
 	copy(cp, r.enrichedSlots)

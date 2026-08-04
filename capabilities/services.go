@@ -79,7 +79,8 @@ func NewResultNormalizer() *DefaultResultNormalizer {
 func (n *DefaultResultNormalizer) Normalize(raw interface{}) (CapabilityResult, error) {
 	// Simplistic V1 normalization
 	return CapabilityResult{
-		Success: true,
-		Data:    map[string]interface{}{"raw": raw},
+		Success:     true,
+		Realization: Generative,
+		Data:        map[string]interface{}{"raw": raw},
 	}, nil
 }

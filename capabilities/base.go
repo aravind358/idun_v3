@@ -48,5 +48,5 @@ func (b *BaseCapability) SetOperationalStatus(status OperationalStatus) {
 
 // Execute is a placeholder. Embedders must override this.
 func (b *BaseCapability) Execute(ctx context.Context, req CapabilityRequest) (CapabilityResult, error) {
-	return CapabilityResult{}, nil
+	return CapabilityResult{Realization: Generative}, nil
 }

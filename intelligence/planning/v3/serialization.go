@@ -11,6 +11,7 @@ type jsonPlanNode struct {
 	NodeID      string         `json:"NodeID"`
 	Capability  string         `json:"Capability"`
 	BoundParams map[string]any `json:"BoundParams"`
+	UserImpact  string         `json:"UserImpact"`
 }
 
 type jsonDependency struct {
@@ -24,6 +25,8 @@ type jsonExecutionPlan struct {
 	ParentArtifactID string           `json:"ParentArtifactID"`
 	EnvelopeID       string           `json:"EnvelopeID"`
 	Timestamp        time.Time        `json:"Timestamp"`
+	PlanIntent       string           `json:"PlanIntent"`
+	ExecutionClass   string           `json:"ExecutionClass"`
 	Nodes            []jsonPlanNode   `json:"Nodes"`
 	Edges            []jsonDependency `json:"Edges"`
 }
@@ -39,6 +42,8 @@ func (p *ExecutionPlan) MarshalJSON() ([]byte, error) {
 		ParentArtifactID: string(p.parentArtifactID),
 		EnvelopeID:       string(p.envelopeID),
 		Timestamp:        time.Time(p.timestamp),
+		PlanIntent:       p.planIntent,
+		ExecutionClass:   p.executionClass,
 	}
 
 	for _, n := range p.nodes {
@@ -46,6 +51,7 @@ func (p *ExecutionPlan) MarshalJSON() ([]byte, error) {
 			NodeID:      n.nodeID,
 			Capability:  string(n.capability),
 			BoundParams: n.boundParams, // map handles json internally
+			UserImpact:  n.userImpact,
 		})
 	}
 	for _, e := range p.edges {
@@ -69,10 +75,12 @@ func (p *ExecutionPlan) UnmarshalJSON(data []byte) error {
 	p.parentArtifactID = foundation.ParentArtifactID(j.ParentArtifactID)
 	p.envelopeID = foundation.EnvelopeID(j.EnvelopeID)
 	p.timestamp = foundation.Timestamp(j.Timestamp)
+	p.planIntent = j.PlanIntent
+	p.executionClass = j.ExecutionClass
 
 	p.nodes = make([]PlanNode, len(j.Nodes))
 	for i, n := range j.Nodes {
-		p.nodes[i] = NewPlanNode(n.NodeID, CapabilityID(n.Capability), n.BoundParams)
+		p.nodes[i] = NewPlanNode(n.NodeID, CapabilityID(n.Capability), n.BoundParams, n.UserImpact)
 	}
 
 	p.edges = make([]Dependency, len(j.Edges))

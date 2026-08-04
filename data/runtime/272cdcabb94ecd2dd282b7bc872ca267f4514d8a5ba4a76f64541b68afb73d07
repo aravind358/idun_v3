@@ -1,0 +1,1 @@
+{"SpecVersion":"3.0","ArtifactID":"5387be68-d6cf-4dc9-b0b7-a395dea876c6","ParentArtifactID":"4aeefc1e-2e7f-4fae-b352-2d6550449c48","Timestamp":"2026-08-03T00:36:01.9772175+05:30","PlanIntent":"","ExecutionClass":"","Nodes":[{"NodeID":"40c80fb1-f495-4076-9b0d-de32aeea30b5","Capability":"sys-time-1","BoundParams":{},"UserImpact":"NONE"}],"Edges":null}

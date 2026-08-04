@@ -1,0 +1,1 @@
+{"SpecVersion":"3.0","ArtifactID":"96f0e204-9a27-4d47-9a28-65cf54c2071d","ParentArtifactID":"23158476-d89d-4cda-b32b-712d5d63681b","Timestamp":"2026-08-02T23:02:08.23383+05:30","PlanIntent":"","ExecutionClass":"","Nodes":[{"NodeID":"a8b2afab-22ab-4d18-ab02-3335581db866","Capability":"files-native-1","BoundParams":{},"UserImpact":"NONE"}],"Edges":null}

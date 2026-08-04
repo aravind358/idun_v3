@@ -53,7 +53,7 @@ func TestOrchestrator_Plan(t *testing.T) {
 	registry := &mockRegistry{}
 	orc := NewOrchestrator(registry)
 
-	plan, err := orc.Plan(context.Background(), interp, reasonCtx)
+	plan, err := orc.Plan(context.Background(), interp, []*reasoning.ReasoningContext{reasonCtx})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}

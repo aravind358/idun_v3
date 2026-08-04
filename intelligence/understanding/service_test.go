@@ -150,6 +150,20 @@ func TestDefaultGrammarSpecialist(t *testing.T) {
 	if len(hypAlarm.Slots) != 1 || hypAlarm.Slots[0].Name != "time" || hypAlarm.Slots[0].Value != "07:30 am" {
 		t.Fatalf("unexpected slots: %+v", hypAlarm.Slots)
 	}
+
+	// 3. query_time match
+	normTime := normalizer.Normalize("What time is it")
+	hypTime, matchedTime := grammar.Evaluate(normTime, nil)
+	if !matchedTime || hypTime.Intent != "query_time" {
+		t.Fatalf("expected query_time match, got matched=%v, intent=%s", matchedTime, hypTime.Intent)
+	}
+
+	// 4. query_date match
+	normDate := normalizer.Normalize("What's today's date")
+	hypDate, matchedDate := grammar.Evaluate(normDate, nil)
+	if !matchedDate || hypDate.Intent != "query_date" {
+		t.Fatalf("expected query_date match, got matched=%v, intent=%s", matchedDate, hypDate.Intent)
+	}
 }
 
 func TestServiceDeterministicInterpretationAndWorkspacePublication(t *testing.T) {

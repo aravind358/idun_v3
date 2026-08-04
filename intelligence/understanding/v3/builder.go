@@ -70,14 +70,21 @@ func (b *Builder) TemporalAnchors(t []TemporalAnchor) *Builder {
 	b.obj.temporalAnchors = t
 	return b
 }
+func (b *Builder) GetTemporalAnchors() []TemporalAnchor {
+	return b.obj.temporalAnchors
+}
+func (b *Builder) ComposedTimestamps(c []string) *Builder {
+	b.obj.composedTimestamps = c
+	return b
+}
+func (b *Builder) GetComposedTimestamps() []string {
+	return b.obj.composedTimestamps
+}
 func (b *Builder) OpenSlots(o []string) *Builder {
 	b.obj.openSlots = o
 	return b
 }
-func (b *Builder) StatusReason(r string) *Builder {
-	b.obj.statusReason = r
-	return b
-}
+
 func (b *Builder) IsConditional(c bool) *Builder {
 	b.obj.isConditional = c
 	return b
@@ -130,28 +137,10 @@ func (b *Builder) Ambiguities(a []Ambiguity) *Builder {
 	b.obj.ambiguities = a
 	return b
 }
-func (b *Builder) MissingInformation(m []string) *Builder {
-	b.obj.missingInformation = m
-	return b
-}
-func (b *Builder) Completeness(c float64) *Builder {
-	b.obj.completeness = c
-	return b
-}
+
+
 func (b *Builder) Confidence(c float64) *Builder {
 	b.obj.confidence = c
-	return b
-}
-func (b *Builder) ProcessedDurationMs(p float64) *Builder {
-	b.obj.processedDurationMs = p
-	return b
-}
-func (b *Builder) ValidationTrace(v *ValidationTrace) *Builder {
-	b.obj.validationTrace = v
-	return b
-}
-func (b *Builder) ConfidenceTrace(c []string) *Builder {
-	b.obj.confidenceTrace = c
 	return b
 }
 

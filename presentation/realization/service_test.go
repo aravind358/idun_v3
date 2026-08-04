@@ -11,6 +11,7 @@ import (
 
 	"idun/intelligence/communication"
 	"idun/intelligence/infrastructure/inference"
+	"idun/presentation"
 	"idun/presentation/realization"
 )
 
@@ -204,7 +205,7 @@ func TestServiceRealizationPass(t *testing.T) {
 				t.Fatalf("expected ParentRef parent-42, got %s", p.ParentRef)
 			}
 			outBytes, _ := storer.Retrieve(context.Background(), p.PayloadRef)
-			var rOut realization.RealizedOutput
+			var rOut presentation.RealizedOutput
 			if err := json.Unmarshal(outBytes, &rOut); err != nil {
 				t.Fatalf("failed to unmarshal RealizedOutput: %v", err)
 			}

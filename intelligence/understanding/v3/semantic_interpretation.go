@@ -2,6 +2,8 @@ package v3
 
 import (
 	"errors"
+
+	"idun/intelligence/understanding/v3/ontology"
 )
 
 const (
@@ -44,41 +46,7 @@ const (
 	LayerDeliberativeLLM  SourceLayer = "Understanding.DeliberativeLLM"
 )
 
-// EntityType
-type EntityType string
 
-const (
-	EntityPerson           EntityType = "PERSON"
-	EntityOrganization     EntityType = "ORGANIZATION"
-	EntityLocation         EntityType = "LOCATION"
-	EntityHistorical       EntityType = "HISTORICAL_ENTITY"
-	EntityProduct          EntityType = "PRODUCT"
-	EntityDateTime         EntityType = "DATE_TIME"
-	EntityQuantity         EntityType = "QUANTITY"
-	EntityConcept          EntityType = "CONCEPT"
-	EntityEvent            EntityType = "EVENT"
-	EntityFile             EntityType = "FILE"
-	EntityUnknown          EntityType = "UNKNOWN"
-)
-
-// ReferenceType
-type ReferenceType string
-
-const (
-	RefPronoun             ReferenceType = "PRONOUN"
-	RefDemonstrative       ReferenceType = "DEMONSTRATIVE"
-	RefDefiniteDescription ReferenceType = "DEFINITE_DESCRIPTION"
-)
-
-// TemporalType
-type TemporalType string
-
-const (
-	TempAbsolute   TemporalType = "ABSOLUTE"
-	TempRelative   TemporalType = "RELATIVE"
-	TempDuration   TemporalType = "DURATION"
-	TempRecurrence TemporalType = "RECURRENCE"
-)
 
 // Valence
 type Valence string
@@ -154,54 +122,54 @@ func (h Hypothesis) Slots() []Slot              { s := make([]Slot, len(h.slots)
 
 type Entity struct {
 	surface       string
-	eType         EntityType
+	eType         ontology.EntityType
 	canonicalName string
 	groundingID   string
 	confidence    float64
 }
 
-func NewEntity(surface string, t EntityType, canonical, grounding string, conf float64) Entity {
+func NewEntity(surface string, t ontology.EntityType, canonical, grounding string, conf float64) Entity {
 	return Entity{surface: surface, eType: t, canonicalName: canonical, groundingID: grounding, confidence: conf}
 }
-func (e Entity) Surface() string       { return e.surface }
-func (e Entity) Type() EntityType      { return e.eType }
-func (e Entity) CanonicalName() string { return e.canonicalName }
-func (e Entity) GroundingID() string   { return e.groundingID }
-func (e Entity) Confidence() float64   { return e.confidence }
+func (e Entity) Surface() string                { return e.surface }
+func (e Entity) Type() ontology.EntityType      { return e.eType }
+func (e Entity) CanonicalName() string          { return e.canonicalName }
+func (e Entity) GroundingID() string            { return e.groundingID }
+func (e Entity) Confidence() float64            { return e.confidence }
 
 type Reference struct {
 	surface           string
-	rType             ReferenceType
+	rType             ontology.ReferenceType
 	anchorHint        string
 	anchorGroundingID string
 	resolved          bool
 	confidence        float64
 }
 
-func NewReference(surface string, t ReferenceType, hint, grounding string, resolved bool, conf float64) Reference {
+func NewReference(surface string, t ontology.ReferenceType, hint, grounding string, resolved bool, conf float64) Reference {
 	return Reference{surface: surface, rType: t, anchorHint: hint, anchorGroundingID: grounding, resolved: resolved, confidence: conf}
 }
-func (r Reference) Surface() string           { return r.surface }
-func (r Reference) Type() ReferenceType       { return r.rType }
-func (r Reference) AnchorHint() string        { return r.anchorHint }
-func (r Reference) AnchorGroundingID() string { return r.anchorGroundingID }
-func (r Reference) Resolved() bool            { return r.resolved }
-func (r Reference) Confidence() float64       { return r.confidence }
+func (r Reference) Surface() string                   { return r.surface }
+func (r Reference) Type() ontology.ReferenceType      { return r.rType }
+func (r Reference) AnchorHint() string                { return r.anchorHint }
+func (r Reference) AnchorGroundingID() string         { return r.anchorGroundingID }
+func (r Reference) Resolved() bool                    { return r.resolved }
+func (r Reference) Confidence() float64               { return r.confidence }
 
 type TemporalAnchor struct {
 	surface    string
-	tType      TemporalType
+	tType      ontology.TemporalType
 	normalized string
 	confidence float64
 }
 
-func NewTemporalAnchor(surface string, t TemporalType, normalized string, conf float64) TemporalAnchor {
+func NewTemporalAnchor(surface string, t ontology.TemporalType, normalized string, conf float64) TemporalAnchor {
 	return TemporalAnchor{surface: surface, tType: t, normalized: normalized, confidence: conf}
 }
-func (t TemporalAnchor) Surface() string       { return t.surface }
-func (t TemporalAnchor) Type() TemporalType    { return t.tType }
-func (t TemporalAnchor) Normalized() string    { return t.normalized }
-func (t TemporalAnchor) Confidence() float64   { return t.confidence }
+func (t TemporalAnchor) Surface() string                { return t.surface }
+func (t TemporalAnchor) Type() ontology.TemporalType    { return t.tType }
+func (t TemporalAnchor) Normalized() string             { return t.normalized }
+func (t TemporalAnchor) Confidence() float64            { return t.confidence }
 
 type SecondaryIntent struct {
 	intent     string

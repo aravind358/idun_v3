@@ -2,19 +2,24 @@ package v3
 
 import (
 	"context"
+	"fmt"
 	"idun/core/foundation"
+	reasoning "idun/intelligence/reasoning"
+	"idun/intelligence/communication"
 	understanding "idun/intelligence/understanding/v3"
 	"time"
 )
 
 // Orchestrator coordinates the Reasoning pipeline.
 type Orchestrator struct {
-	memory MemoryProvider
+	memory      MemoryProvider
+	deliberative *reasoning.DeliberativeSpecialist
 }
 
-// NewOrchestrator creates a new reasoning Orchestrator with the given memory dependency.
-func NewOrchestrator(memory MemoryProvider) *Orchestrator {
-	return &Orchestrator{memory: memory}
+// NewOrchestrator creates a new reasoning Orchestrator.
+// deliberative may be nil; if nil, Step 8 (LLM escalation) is skipped.
+func NewOrchestrator(memory MemoryProvider, deliberative *reasoning.DeliberativeSpecialist) *Orchestrator {
+	return &Orchestrator{memory: memory, deliberative: deliberative}
 }
 
 // Reason performs context enrichment on the incoming interpretation.
@@ -66,7 +71,7 @@ func (o *Orchestrator) Reason(ctx context.Context, interpretation *understanding
 	// Mock: we'll just carry over the primary slots without enrichment for the stub, unless they match an entity.
 	var enrichedSlots []EnrichedSlot
 	for _, slot := range interpretation.PrimaryHypothesis().Slots() {
-		// Check if we grounded this slot's value
+		// Check if we grounded this slot's value to an entity
 		enrichedVal := slot.Value()
 		for _, ge := range groundedEntities {
 			if ge.SurfaceText() == slot.Value() {
@@ -74,9 +79,24 @@ func (o *Orchestrator) Reason(ctx context.Context, interpretation *understanding
 				break
 			}
 		}
-		if enrichedVal != slot.Value() {
-			enrichedSlots = append(enrichedSlots, NewEnrichedSlot(slot, enrichedVal))
+		
+		// Check if this slot was temporally normalized
+		if enrichedVal == slot.Value() {
+			if len(interpretation.ComposedTimestamps()) > 0 && (slot.Name() == "time" || slot.Name() == "date" || slot.Name() == "temporal") {
+				// Use the canonically composed timestamp if available for temporal slots
+				enrichedVal = interpretation.ComposedTimestamps()[0]
+			} else {
+				for _, anchor := range interpretation.TemporalAnchors() {
+					if anchor.Surface() == slot.Value() && anchor.Normalized() != "" {
+						enrichedVal = anchor.Normalized()
+						break
+					}
+				}
+			}
 		}
+
+		// Always append the slot to ensure it reaches planning
+		enrichedSlots = append(enrichedSlots, NewEnrichedSlot(slot, enrichedVal))
 	}
 	builder.EnrichedSlots(enrichedSlots)
 
@@ -95,6 +115,31 @@ func (o *Orchestrator) Reason(ctx context.Context, interpretation *understanding
 	if interpretation.CommunicativeAct() == understanding.ActStatement {
 		isTrue, _ := o.memory.EvaluateFact(ctx, interpretation.PrimaryIntent())
 		builder.TruthEvaluated(true, isTrue)
+	}
+
+	// 8. Deliberative Escalation
+	// If the resolved intent is empty or ambiguous and a DeliberativeSpecialist is wired,
+	// escalate to the LLM to attempt a higher-quality intent resolution.
+	// This mirrors the S8 escalation in the V1 reasoning.Service (service.go:492-530).
+	if o.deliberative != nil && (interpretation.Status() == understanding.StatusAmbiguous || interpretation.Status() == understanding.StatusFailed) {
+		// Build a minimal envelope for the deliberative specialist to operate on.
+		// The specialist uses the envelope's PayloadRef to retrieve raw perception data.
+		synthEnv := communication.Envelope{
+			ID:         string(interpretation.ArtifactID()),
+			Topic:      communication.TopicUserIntent,
+			CreatedAt:  time.Now().UTC(),
+			PayloadRef: "Analyze ambiguous intent: " + interpretation.PrimaryIntent(),
+		}
+		
+		fmt.Printf(">>> Reasoning V3: Ambiguity/Failure detected (Status: %s). Escalating to DeliberativeSpecialist (S8)...\n", interpretation.Status())
+		
+		_, err := o.deliberative.EvaluateDeliberative(ctx, synthEnv, 0.0, 0.65)
+		if err != nil {
+			fmt.Printf(">>> Reasoning V3: DeliberativeSpecialist error: %v\n", err)
+		}
+		// Results are discarded for this MVP integration;
+		// the framework integration is confirmed active when the specialist executes.
+		// A follow-up will wire the hypotheses back into the ReasoningContext builder.
 	}
 
 	return builder.Build()

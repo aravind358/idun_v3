@@ -8,31 +8,43 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
+	coretime "idun/core/time"
 	"idun/core/logger"
 	"idun/core/memory"
 	"idun/core/scheduler"
 	"idun/core/storage"
 	"idun/capabilities"
+	"idun/capabilities/applications"
+	"idun/capabilities/applications/core"
 	"idun/capabilities/native"
 	"idun/intelligence/attention"
 	"idun/intelligence/calibration"
 	"idun/intelligence/communication"
 	"idun/intelligence/constitution"
-	"idun/intelligence/decision"
-	"idun/intelligence/executive"
+	decisionv3 "idun/intelligence/decision/v3"
+	executivev3 "idun/intelligence/executive/v3"
 	"idun/intelligence/infrastructure/inference"
 	"idun/intelligence/infrastructure/registry"
 	"idun/intelligence/learning"
-	"idun/intelligence/planning"
+	planningv3 "idun/intelligence/planning/v3"
 	"idun/intelligence/reasoning"
+	reasoningv3 "idun/intelligence/reasoning/v3"
 	"idun/intelligence/reflection"
-	"idun/intelligence/understanding"
+	underv3 "idun/intelligence/understanding/v3"
+	underext "idun/intelligence/understanding/v3/extractors"
+	undernorms "idun/intelligence/understanding/v3/normalizers"
+	undercomps "idun/intelligence/understanding/v3/composers"
+	underspl "idun/intelligence/understanding/v3/splitter"
 	"idun/intelligence/workspace"
 	"idun/kernel"
+	"idun/presentation"
+	"idun/presentation/deterministic"
 	"idun/presentation/realization"
+	"idun/presentation/router"
 	"idun/world"
 	worldtext "idun/world/adapters/text"
 )
@@ -62,15 +74,12 @@ func (a *workspacePubAdapter) Publish(ctx context.Context, env communication.Env
 	return a.ws.Publish(ctx, env)
 }
 
-func (a *workspacePubAdapter) Subscribe(topic communication.TopicID, subscriberID string, handler func(ctx context.Context, env communication.Envelope) error) (planning.WorkspaceSubscription, error) {
-	return a.ws.Subscribe(topic, subscriberID, handler)
-}
 
 type decisionWorkspaceSubAdapter struct {
 	ws *workspace.Engine
 }
 
-func (a *decisionWorkspaceSubAdapter) Subscribe(topic communication.TopicID, subscriberID string, handler func(ctx context.Context, env communication.Envelope) error) (decision.WorkspaceSubscription, error) {
+func (a *decisionWorkspaceSubAdapter) Subscribe(topic communication.TopicID, subscriberID string, handler func(ctx context.Context, env communication.Envelope) error) (decisionv3.WorkspaceSubscription, error) {
 	return a.ws.Subscribe(topic, subscriberID, handler)
 }
 
@@ -78,7 +87,7 @@ type executiveWorkspaceSubAdapter struct {
 	ws *workspace.Engine
 }
 
-func (a *executiveWorkspaceSubAdapter) Subscribe(topic communication.TopicID, subscriberID string, handler func(ctx context.Context, env communication.Envelope) error) (executive.ExecutiveWorkspaceSubscription, error) {
+func (a *executiveWorkspaceSubAdapter) Subscribe(topic communication.TopicID, subscriberID string, handler func(ctx context.Context, env communication.Envelope) error) (executivev3.WorkspaceSubscription, error) {
 	return a.ws.Subscribe(topic, subscriberID, handler)
 }
 
@@ -94,6 +103,42 @@ func (a *realizationWorkspaceSubAdapter) Publish(ctx context.Context, env commun
 	return a.ws.Publish(ctx, env)
 }
 
+type routerWorkspaceSubAdapter struct {
+	ws *workspace.Engine
+}
+
+func (a *routerWorkspaceSubAdapter) Subscribe(topic communication.TopicID, subscriberID string, handler func(ctx context.Context, env communication.Envelope) error) (router.WorkspaceSubscription, error) {
+	return a.ws.Subscribe(topic, subscriberID, handler)
+}
+
+func (a *routerWorkspaceSubAdapter) Publish(ctx context.Context, env communication.Envelope) error {
+	return a.ws.Publish(ctx, env)
+}
+
+type understandingWorkspaceSubAdapter struct {
+	ws *workspace.Engine
+}
+
+func (a *understandingWorkspaceSubAdapter) Subscribe(topic communication.TopicID, subscriberID string, handler func(ctx context.Context, env communication.Envelope) error) (underv3.WorkspaceSubscription, error) {
+	return a.ws.Subscribe(topic, subscriberID, handler)
+}
+
+type reasoningWorkspaceSubAdapter struct {
+	ws *workspace.Engine
+}
+
+func (a *reasoningWorkspaceSubAdapter) Subscribe(topic communication.TopicID, subscriberID string, handler func(ctx context.Context, env communication.Envelope) error) (reasoningv3.WorkspaceSubscription, error) {
+	return a.ws.Subscribe(topic, subscriberID, handler)
+}
+
+type planningWorkspaceSubAdapter struct {
+	ws *workspace.Engine
+}
+
+func (a *planningWorkspaceSubAdapter) Subscribe(topic communication.TopicID, subscriberID string, handler func(ctx context.Context, env communication.Envelope) error) (planningv3.WorkspaceSubscription, error) {
+	return a.ws.Subscribe(topic, subscriberID, handler)
+}
+
 type payloadStorerAdapter struct {
 	store *storage.Storage
 }
@@ -105,6 +150,19 @@ func (a *payloadStorerAdapter) Store(ctx context.Context, data []byte) (string, 
 		return "", err
 	}
 	return key, nil
+}
+
+func (a *payloadStorerAdapter) StoreArtifact(ctx context.Context, artifactID string, meta storage.ArtifactIndexMeta, data []byte) (string, error) {
+	h := sha256.Sum256(data)
+	payloadRef := hex.EncodeToString(h[:])
+	if err := a.store.StoreArtifact(artifactID, meta, payloadRef, data); err != nil {
+		return "", err
+	}
+	return payloadRef, nil
+}
+
+func (a *payloadStorerAdapter) LookupArtifact(ctx context.Context, artifactID string) (storage.ArtifactIndexMeta, error) {
+	return a.store.LookupArtifact(artifactID)
 }
 
 func (a *payloadStorerAdapter) Retrieve(ctx context.Context, key string) ([]byte, error) {
@@ -143,6 +201,7 @@ type RuntimeHost struct {
 	storageSvc   *storage.Storage
 	memorySvc    memory.Memory
 	schedulerSvc *scheduler.SchedulerService
+	timeSvc      coretime.TimeService
 
 	// Foundation instances
 	registrySvc   *kernel.Registry
@@ -159,11 +218,11 @@ type RuntimeHost struct {
 	// Workspace & Cognitive instances
 	workspaceSvc *workspace.Engine
 	attentionSvc *attention.Service
-	executiveSvc *executive.ServiceV2
-	underSvc     *understanding.Service
-	reasonSvc    *reasoning.Service
-	planSvc      *planning.DefaultPlanningService
-	decisionSvc  *decision.DefaultDecisionService
+	execV3Svc    *executivev3.WorkspaceBridge
+	underV3Svc   *underv3.WorkspaceBridge
+	reasonV3Svc  *reasoningv3.WorkspaceBridge
+	planV3Svc    *planningv3.WorkspaceBridge
+	decisionV3Svc *decisionv3.WorkspaceBridge
 	reflectSvc   *reflection.Service
 	learningSvc  *learning.Service
 
@@ -171,12 +230,17 @@ type RuntimeHost struct {
 	modelRegSvc    *registry.Service
 	inferenceSvc   *inference.Service
 	realizationSvc *realization.Service
+	routerSvc      *router.Service
 
 	// World boundary subsystem
 	worldSvc  *world.Service
 	inReader  io.Reader
 	outWriter io.Writer
 	doneCh    chan struct{}
+}
+
+func (h *RuntimeHost) Storage() *storage.Storage {
+	return h.storageSvc
 }
 
 type HostOption func(*RuntimeHost)
@@ -294,6 +358,18 @@ func (h *RuntimeHost) Build() error {
 	}
 	h.loggerSvc = logSvc
 
+	var loc *time.Location
+	if h.cfg.Timezone != "" {
+		parsedLoc, err := time.LoadLocation(h.cfg.Timezone)
+		if err != nil {
+			return fmt.Errorf("runtime: failed to load timezone %q: %w", h.cfg.Timezone, err)
+		}
+		loc = parsedLoc
+	} else {
+		loc = time.Local
+	}
+	h.timeSvc = coretime.NewTimeService(loc)
+
 	storeSvc, err := storage.NewStorage(storage.Config{Path: h.cfg.StoragePath}, logSvc)
 	if err != nil {
 		return fmt.Errorf("failed to construct storage service: %w", err)
@@ -332,8 +408,23 @@ func (h *RuntimeHost) Build() error {
 	capResolver := capabilities.NewResolver(capRegistry)
 	capLifecycle := capabilities.NewLifecycleManager(capRegistry)
 	h.capManager = capabilities.NewManager(capRegistry, capResolver, capLifecycle)
-	if err := native.LoadNativeCapabilities(capRegistry); err != nil {
+
+	deps := native.NativeCapabilityDependencies{
+		Time:      h.timeSvc,
+		Memory:    h.memorySvc,
+		Storage:   storeSvc,
+		Scheduler: h.schedulerSvc,
+		// Workspace: h.workspaceEng, // Workspace not needed yet, or initialized later
+	}
+	if err := native.LoadNativeCapabilities(capRegistry, deps); err != nil {
 		return fmt.Errorf("failed to load native capabilities: %w", err)
+	}
+
+	appDeps := core.AppCapabilityDependencies{
+		Resolver:  core.NewCapabilityManagerResolver(h.capManager),
+	}
+	if err := applications.LoadApplicationCapabilities(capRegistry, appDeps); err != nil {
+		return fmt.Errorf("failed to load application capabilities: %w", err)
 	}
 	h.capHandler = capabilities.NewActionExecutionHandler(h.capManager, &payloadStorerAdapter{store: storeSvc})
 
@@ -343,53 +434,66 @@ func (h *RuntimeHost) Build() error {
 		attention.WithWorkspacePublisher(&workspacePubAdapter{ws: h.workspaceSvc}, &payloadStorerAdapter{store: storeSvc}),
 	)
 
-	execSvc, err := executive.NewServiceV2(
-		h.workspaceSvc,
-		h.calibSvc,
-		h.constGate,
-		h.cfg.InitialExecutiveBudget,
-		executive.WithWorkspaceBridgeOpt(
+	if h.isSubsystemEnabled("executive") {
+		// Initialize Executive V3 Adapters
+		v3CapReg := executivev3.NewLegacyCapabilityRegistryAdapter(h.capManager)
+		v3MemAdapter := executivev3.NewLegacyMemoryAdapter(storeSvc)
+		v3PlanProv := executivev3.NewStoragePlanProvider(&payloadStorerAdapter{store: storeSvc})
+
+		// Build V3 Execution Engine
+		v3ExecEngine := executivev3.NewExecutionEngine(v3PlanProv, v3CapReg, v3MemAdapter)
+
+		// Wrap with WorkspaceBridge
+		h.execV3Svc = executivev3.NewWorkspaceBridge(
+			v3ExecEngine,
 			&payloadStorerAdapter{store: storeSvc},
+			&workspacePubAdapter{ws: h.workspaceSvc},
 			&executiveWorkspaceSubAdapter{ws: h.workspaceSvc},
-		),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to construct executive service: %w", err)
-	}
-	h.executiveSvc = execSvc
-
-
-	if h.isSubsystemEnabled("reasoning") {
-		h.reasonSvc = reasoning.NewService(
-			reasoning.DefaultConfig(),
-			h.workspaceSvc,
-			memSvc,
-			reasoning.WithPayloadStorer(&payloadStorerAdapter{store: storeSvc}),
 		)
 	}
+
 	if h.isSubsystemEnabled("planning") {
-		h.planSvc = planning.NewService(
-			planning.WithWorkspaceBridge(
-				&payloadStorerAdapter{store: storeSvc},
-				&workspacePubAdapter{ws: h.workspaceSvc},
-				&workspacePubAdapter{ws: h.workspaceSvc},
-			),
+		// Initialize Capability Registry Adapter
+		v3CapReg := planningv3.NewLegacyCapabilityAdapter(h.capManager)
+
+		// Build V3 Orchestrator
+		v3PlanOrch := planningv3.NewOrchestrator(v3CapReg)
+
+		// Wrap with WorkspaceBridge
+		h.planV3Svc = planningv3.NewWorkspaceBridge(
+			v3PlanOrch,
+			&payloadStorerAdapter{store: storeSvc},
+			&workspacePubAdapter{ws: h.workspaceSvc},
+			&planningWorkspaceSubAdapter{ws: h.workspaceSvc},
 		)
 	}
 	if h.isSubsystemEnabled("decision") {
-		h.decisionSvc = decision.NewService(
-			decision.WithWorkspaceBridge(
-				&payloadStorerAdapter{store: storeSvc},
-				&workspacePubAdapter{ws: h.workspaceSvc},
-				&decisionWorkspaceSubAdapter{ws: h.workspaceSvc},
-			),
+		// Initialize Validators
+		v3Safety := decisionv3.NewLegacySafetyAdapter(h.constGate)
+		v3Auth := decisionv3.NewDefaultAuthValidator()
+		v3Policy := decisionv3.NewDefaultPolicyValidator()
+		v3Budget := decisionv3.NewDefaultBudgetValidator()
+
+		// Build V3 Orchestrator
+		v3DecOrch := decisionv3.NewOrchestrator(v3Safety, v3Auth, v3Policy, v3Budget)
+
+		// Wrap with WorkspaceBridge
+		h.decisionV3Svc = decisionv3.NewWorkspaceBridge(
+			v3DecOrch,
+			&payloadStorerAdapter{store: storeSvc},
+			&workspacePubAdapter{ws: h.workspaceSvc},
+			&decisionWorkspaceSubAdapter{ws: h.workspaceSvc},
 		)
 	}
 	if h.isSubsystemEnabled("reflection") {
-		h.reflectSvc = reflection.NewService()
+		h.reflectSvc = reflection.NewService(
+			reflection.WithWorkspace(h.workspaceSvc),
+		)
 	}
 	if h.isSubsystemEnabled("learning") {
-		ls, err := learning.NewService()
+		ls, err := learning.NewService(
+			learning.WithWorkspace(h.workspaceSvc),
+		)
 		if err != nil {
 			return fmt.Errorf("failed to construct learning service: %w", err)
 		}
@@ -427,15 +531,62 @@ func (h *RuntimeHost) Build() error {
 			"model": realizationModel,
 		},
 	})
+	_ = h.modelRegSvc.Register(context.Background(), "reasoning-deliberative-llm", registry.BackendDescriptor{
+		ID:             "ollama-local-01",
+		DriverScheme:   "ollama",
+		Endpoint:       "http://localhost:11434",
+		Version:        "1.0",
+		MaxConcurrency: 4,
+		DriverConfig: map[string]string{
+			"model": realizationModel,
+		},
+	})
 
 
 	if h.isSubsystemEnabled("understanding") {
-		delib := understanding.NewDeliberativeWorker(h.inferenceSvc, h.workspaceSvc, 5*time.Second)
-		h.underSvc = understanding.NewService(
-			understanding.WithConfigOptions(),
-			h.workspaceSvc,
-			understanding.WithPayloadStorer(&payloadStorerAdapter{store: h.storageSvc}),
-			understanding.WithDeliberativeWorker(delib),
+		// Instantiate V3 dependencies
+		grammar := underv3.NewDefaultGrammarSpecialist()
+		neural := underv3.NewDefaultNeuralSpecialist()
+		delib := underv3.NewDeliberativeWorker(h.inferenceSvc, h.workspaceSvc, 5*time.Second)
+		
+		// Inject Semantic Extractors
+		exts := underext.NewDeterministicExtractors()
+
+		// Inject Normalizers
+		tempNorm := undernorms.NewDeterministicTemporalNormalizer(h.timeSvc)
+		norms := undernorms.NewDeterministicNormalizers(tempNorm)
+		// Build V3 Orchestrator
+		comps := undercomps.NewDeterministicTemporalComposer()
+
+		v3Orch := underv3.NewOrchestrator(grammar, neural, delib, exts, norms, comps, underspl.NewDeterministicSplitter())
+		
+		// Wrap with WorkspaceBridge
+		h.underV3Svc = underv3.NewWorkspaceBridge(
+			v3Orch, 
+			&payloadStorerAdapter{store: h.storageSvc}, 
+			&workspacePubAdapter{ws: h.workspaceSvc},
+			&understandingWorkspaceSubAdapter{ws: h.workspaceSvc}, 
+		)
+	}
+
+	if h.isSubsystemEnabled("reasoning") {
+		// Initialize Memory Adapter
+		v3Mem := reasoningv3.NewLegacyMemoryAdapter(memSvc)
+
+		// Build Deliberative Specialist (S8) using the shared InferenceService.
+		// Constructed here — after h.inferenceSvc is initialized (line ~505) — so the
+		// InferenceService is guaranteed non-nil when the specialist is created.
+		v3Delib := reasoning.NewDeliberativeSpecialist(h.inferenceSvc)
+
+		// Build V3 Orchestrator with all dependencies.
+		v3Orch := reasoningv3.NewOrchestrator(v3Mem, v3Delib)
+
+		// Wrap with WorkspaceBridge
+		h.reasonV3Svc = reasoningv3.NewWorkspaceBridge(
+			v3Orch,
+			&payloadStorerAdapter{store: h.storageSvc},
+			&workspacePubAdapter{ws: h.workspaceSvc},
+			&reasoningWorkspaceSubAdapter{ws: h.workspaceSvc},
 		)
 	}
 
@@ -450,6 +601,20 @@ func (h *RuntimeHost) Build() error {
 			return fmt.Errorf("failed to construct realization service: %w", err)
 		}
 		h.realizationSvc = rlzSvc
+
+		// Wire up the new Response Type Router
+		detEngine := deterministic.NewEngine(filepath.Join(h.cfg.StoragePath, "templates"))
+		
+		engines := map[capabilities.RealizationStrategy]presentation.RealizationEngine{
+			capabilities.Deterministic: detEngine,
+			capabilities.Generative:    rlzSvc,
+		}
+		
+		h.routerSvc = router.NewService(
+			&routerWorkspaceSubAdapter{ws: h.workspaceSvc},
+			&payloadStorerAdapter{store: h.storageSvc},
+			engines,
+		)
 	}
 
 	// World boundary subsystem — registered at PhaseBackground (after all cognitive subsystems).
@@ -519,7 +684,7 @@ func (h *RuntimeHost) Wire() error {
 	h.subs = nil
 
 	// Register default baseline monitoring subscriptions on Workspace if Executive is available
-	if h.workspaceSvc != nil && h.executiveSvc != nil {
+	if h.workspaceSvc != nil && h.execV3Svc != nil {
 		sub, err := h.workspaceSvc.Subscribe(communication.TopicPerception, "runtime-perception-bridge", func(ctx context.Context, env communication.Envelope) error {
 			return nil
 		})
@@ -532,6 +697,38 @@ func (h *RuntimeHost) Wire() error {
 		sub, err := h.workspaceSvc.Subscribe(communication.TopicActionExecution, "capability-execution-handler", h.capHandler.HandleActionExecution)
 		if err == nil && sub != nil {
 			h.subs = append(h.subs, sub)
+		}
+	}
+
+	if h.workspaceSvc != nil && h.attentionSvc != nil {
+		// Subscribe Attention to TopicCandidatePlans
+		subPlans, err := h.workspaceSvc.Subscribe(communication.TopicCandidatePlans, "attention-candidate-plans", func(ctx context.Context, env communication.Envelope) error {
+			stim := attention.Stimulus{
+				ID:            env.ID,
+				Source:        env.Source,
+				PayloadRef:    env.PayloadRef,
+				SalienceScore: int(env.RawConfidence * 100),
+			}
+			_, evalErr := h.attentionSvc.EvaluateTrace(ctx, stim)
+			return evalErr
+		})
+		if err == nil && subPlans != nil {
+			h.subs = append(h.subs, subPlans)
+		}
+
+		// Subscribe Attention to TopicEvaluatedOptions
+		subOpts, err := h.workspaceSvc.Subscribe(communication.TopicEvaluatedOptions, "attention-evaluated-options", func(ctx context.Context, env communication.Envelope) error {
+			stim := attention.Stimulus{
+				ID:            env.ID,
+				Source:        env.Source,
+				PayloadRef:    env.PayloadRef,
+				SalienceScore: int(env.RawConfidence * 100),
+			}
+			_, evalErr := h.attentionSvc.EvaluateTrace(ctx, stim)
+			return evalErr
+		})
+		if err == nil && subOpts != nil {
+			h.subs = append(h.subs, subOpts)
 		}
 	}
 
@@ -588,20 +785,22 @@ func (h *RuntimeHost) Register() error {
 
 	// Phase 4: Executive & Attention
 	registerWrap("Intelligence.Attention", kernel.PhaseExecutive, h.attentionSvc)
-	registerWrap("Intelligence.Executive", kernel.PhaseExecutive, h.executiveSvc)
+	if h.execV3Svc != nil {
+		registerWrap("Intelligence.Executive", kernel.PhaseExecutive, h.execV3Svc)
+	}
 
 	// Phase 5: Cognitive
-	if h.underSvc != nil {
-		registerWrap("Intelligence.Understanding", kernel.PhaseCognitive, h.underSvc)
+	if h.underV3Svc != nil {
+		registerWrap("Intelligence.Understanding", kernel.PhaseCognitive, h.underV3Svc)
 	}
-	if h.reasonSvc != nil {
-		registerWrap("Intelligence.Reasoning", kernel.PhaseCognitive, h.reasonSvc)
+	if h.reasonV3Svc != nil {
+		registerWrap("Intelligence.Reasoning", kernel.PhaseCognitive, h.reasonV3Svc)
 	}
-	if h.planSvc != nil {
-		registerWrap("Intelligence.Planning", kernel.PhaseCognitive, h.planSvc)
+	if h.planV3Svc != nil {
+		registerWrap("Intelligence.Planning", kernel.PhaseCognitive, h.planV3Svc)
 	}
-	if h.decisionSvc != nil {
-		registerWrap("Intelligence.Decision", kernel.PhaseCognitive, h.decisionSvc)
+	if h.decisionV3Svc != nil {
+		registerWrap("Intelligence.Decision", kernel.PhaseCognitive, h.decisionV3Svc)
 	}
 
 	// Phase 6: Background
@@ -612,7 +811,10 @@ func (h *RuntimeHost) Register() error {
 		registerWrap("Intelligence.Learning", kernel.PhaseBackground, h.learningSvc)
 	}
 	if h.realizationSvc != nil {
-		registerWrap("Presentation.LanguageRealization", kernel.PhaseBackground, h.realizationSvc)
+		// registerWrap("Presentation.LanguageRealization", kernel.PhaseBackground, h.realizationSvc)
+		// The realization service is now invoked directly by the Router.
+		// Register the Router instead.
+		registerWrap("Presentation.Router", kernel.PhaseBackground, h.routerSvc)
 	}
 	if h.worldSvc != nil {
 		registerWrap("World.Service", kernel.PhaseBackground, h.worldSvc)

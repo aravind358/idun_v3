@@ -1,3 +1,11 @@
+// Package v3 implements the Decision layer for IDUN Architecture 2.0.0.
+//
+// Architectural Note: Planning selects, Decision validates.
+// In V1, the Decision layer received multiple candidate actions and performed
+// multi-criteria scoring and option ranking. In V3, the Planning layer resolves
+// intents into a single concrete ExecutionPlan. Therefore, multi-candidate
+// evaluation has been superseded. Decision V3 acts purely as a validation gate
+// (evaluating Safety, Auth, Policy, and Budget) on the proposed plan.
 package v3
 
 import (

@@ -13,9 +13,9 @@ func TestExecutionPlan_Validation(t *testing.T) {
 	envID, _ := foundation.NewUUID()
 
 	// Valid DAG: n1 -> n2 -> n3, n1 -> n3
-	n1 := NewPlanNode("n1", "cap.one", nil)
-	n2 := NewPlanNode("n2", "cap.two", nil)
-	n3 := NewPlanNode("n3", "cap.three", nil)
+	n1 := NewPlanNode("n1", CapabilityID("cap.one"), nil, "Node 1")
+	n2 := NewPlanNode("n2", CapabilityID("cap.two"), nil, "Node 2")
+	n3 := NewPlanNode("n3", CapabilityID("cap.three"), nil, "Node 3")
 
 	validBuilder := NewBuilder().
 		ArtifactID(foundation.ArtifactID(artID)).
@@ -68,7 +68,7 @@ func TestExecutionPlan_Serialization(t *testing.T) {
 	parentID, _ := foundation.NewUUID()
 	envID, _ := foundation.NewUUID()
 
-	n1 := NewPlanNode("n1", "cap.test", map[string]any{"param1": "val1", "param2": 42.0})
+	n1 := NewPlanNode("n1", CapabilityID("cap.test"), map[string]any{"param1": "val1", "param2": 42.0}, "Test Node")
 
 	plan, _ := NewBuilder().
 		ArtifactID(foundation.ArtifactID(artID)).

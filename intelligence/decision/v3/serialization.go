@@ -26,8 +26,9 @@ type jsonDecisionRecord struct {
 	SafetyPassed      bool                  `json:"SafetyPassed"`
 	PolicyPassed      bool                  `json:"PolicyPassed"`
 	BudgetPassed      bool                  `json:"BudgetPassed"`
-	PermissionsPassed bool                  `json:"PermissionsPassed"`
-	Findings          []jsonDecisionFinding `json:"Findings"`
+	PermissionsPassed    bool                  `json:"PermissionsPassed"`
+	EffectivePermissions []string              `json:"EffectivePermissions"`
+	Findings             []jsonDecisionFinding `json:"Findings"`
 }
 
 func (d *DecisionRecord) MarshalJSON() ([]byte, error) {
@@ -45,8 +46,9 @@ func (d *DecisionRecord) MarshalJSON() ([]byte, error) {
 		Reason:            d.reason,
 		SafetyPassed:      d.safetyPassed,
 		PolicyPassed:      d.policyPassed,
-		BudgetPassed:      d.budgetPassed,
-		PermissionsPassed: d.permissionsPassed,
+		BudgetPassed:         d.budgetPassed,
+		PermissionsPassed:    d.permissionsPassed,
+		EffectivePermissions: d.effectivePermissions,
 	}
 
 	for _, f := range d.findings {
@@ -79,6 +81,7 @@ func (d *DecisionRecord) UnmarshalJSON(data []byte) error {
 	d.policyPassed = j.PolicyPassed
 	d.budgetPassed = j.BudgetPassed
 	d.permissionsPassed = j.PermissionsPassed
+	d.effectivePermissions = j.EffectivePermissions
 
 	d.findings = make([]DecisionFinding, len(j.Findings))
 	for i, f := range j.Findings {

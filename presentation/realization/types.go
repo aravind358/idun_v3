@@ -1,8 +1,6 @@
 package realization
 
 import (
-	"time"
-
 	"idun/boundary"
 )
 
@@ -37,13 +35,4 @@ func (e ExecutionResponse) ToCommunicationMessage() *boundary.CommunicationMessa
 		Language:   e.Language,
 		Modality:   "text",
 	}
-}
-
-// RealizedOutput is the minimal output contract published for World delivery.
-type RealizedOutput struct {
-	OutputID         string    `json:"output_id"`
-	SourceResponseID string    `json:"source_response_id"` // Exact ID of the ExecutionResponse realized
-	ParentRef        string    `json:"parent_ref"`         // Pass-through correlation ID for World session
-	RealizedText     string    `json:"realized_text"`      // The polished natural human language string
-	CreatedAt        time.Time `json:"created_at"`
 }

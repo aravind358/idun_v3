@@ -1,0 +1,1 @@
+{"SpecVersion":"3.0","ArtifactID":"67c58134-9796-48bb-8daf-cf514338a17d","ParentArtifactID":"be64aecd-d313-416f-a805-505567c8de02","Timestamp":"2026-08-03T00:36:03.6645465+05:30","PlanIntent":"","ExecutionClass":"","Nodes":[{"NodeID":"c7fa5c3b-8c24-4f10-a3a9-f9b8108c193a","Capability":"sys-native-1","BoundParams":{},"UserImpact":"NONE"}],"Edges":null}

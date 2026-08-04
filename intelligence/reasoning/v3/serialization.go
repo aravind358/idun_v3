@@ -38,6 +38,9 @@ type jsonReasoningContext struct {
 	EnvelopeID         string                  `json:"EnvelopeID"`
 	Timestamp          time.Time               `json:"Timestamp"`
 	ResolvedIntent     string                  `json:"ResolvedIntent"`
+	CanProceed         bool                    `json:"CanProceed"`
+	CommunicativeAct   understanding.CommunicativeAct `json:"CommunicativeAct"`
+	ResolvedConfidence float64                 `json:"ResolvedConfidence"`
 	EnrichedSlots      []jsonEnrichedSlot      `json:"EnrichedSlots"`
 	GroundedEntities   []jsonGroundedEntity    `json:"GroundedEntities"`
 	ResolvedReferences []jsonResolvedReference `json:"ResolvedReferences"`
@@ -60,6 +63,9 @@ func (r *ReasoningContext) MarshalJSON() ([]byte, error) {
 		EnvelopeID:         string(r.envelopeID),
 		Timestamp:          time.Time(r.timestamp),
 		ResolvedIntent:     r.resolvedIntent,
+		CanProceed:         r.canProceed,
+		CommunicativeAct:   r.communicativeAct,
+		ResolvedConfidence: r.resolvedConfidence,
 		ConditionEvaluated: r.conditionEvaluated,
 		ConditionMet:       r.conditionMet,
 		TruthEvaluated:     r.truthEvaluated,
@@ -100,6 +106,9 @@ func (r *ReasoningContext) UnmarshalJSON(data []byte) error {
 	r.envelopeID = foundation.EnvelopeID(j.EnvelopeID)
 	r.timestamp = foundation.Timestamp(j.Timestamp)
 	r.resolvedIntent = j.ResolvedIntent
+	r.canProceed = j.CanProceed
+	r.communicativeAct = j.CommunicativeAct
+	r.resolvedConfidence = j.ResolvedConfidence
 	r.conditionEvaluated = j.ConditionEvaluated
 	r.conditionMet = j.ConditionMet
 	r.truthEvaluated = j.TruthEvaluated

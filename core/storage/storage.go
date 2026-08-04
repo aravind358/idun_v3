@@ -20,6 +20,7 @@
 package storage
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -28,6 +29,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"idun/core/logger"
 )
@@ -48,6 +50,17 @@ type Store interface {
 	Delete(key string) error
 	Exists(key string) (bool, error)
 	List(prefix string) ([]string, error)
+
+	StoreArtifact(artifactID string, meta ArtifactIndexMeta, payloadRef string, data []byte) error
+	LookupArtifact(artifactID string) (ArtifactIndexMeta, error)
+}
+
+// ArtifactIndexMeta contains lightweight metadata describing an indexed artifact.
+type ArtifactIndexMeta struct {
+	PayloadRef string    `json:"PayloadRef"`
+	Type       string    `json:"Type,omitempty"`
+	Version    string    `json:"Version,omitempty"`
+	CreatedAt  time.Time `json:"CreatedAt"`
 }
 
 // Config configures the Storage Service at construction time.
@@ -149,6 +162,50 @@ func (s *Storage) Write(key string, value []byte) error {
 
 	return nil
 }
+
+// StoreArtifact persists the payload under payloadRef and explicitly creates an index mapping artifactID to payloadRef.
+func (s *Storage) StoreArtifact(artifactID string, meta ArtifactIndexMeta, payloadRef string, data []byte) error {
+	// 1. Persist the payload itself (reusing standard Write so it's simple and low-level)
+	if err := s.Write(payloadRef, data); err != nil {
+		return fmt.Errorf("storage: failed to write artifact payload %q: %w", payloadRef, err)
+	}
+
+	// 2. Prepare the metadata
+	meta.PayloadRef = payloadRef
+	if meta.CreatedAt.IsZero() {
+		meta.CreatedAt = time.Now().UTC()
+	}
+
+	// 3. Persist the index
+	indexData, err := json.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("storage: failed to marshal artifact meta %q: %w", artifactID, err)
+	}
+
+	indexPath := filepath.Join("_indexes", "artifacts", artifactID)
+	if err := s.Write(indexPath, indexData); err != nil {
+		return fmt.Errorf("storage: failed to write artifact index %q: %w", artifactID, err)
+	}
+
+	return nil
+}
+
+// LookupArtifact retrieves the metadata for the given artifactID from the index.
+func (s *Storage) LookupArtifact(artifactID string) (ArtifactIndexMeta, error) {
+	indexPath := filepath.Join("_indexes", "artifacts", artifactID)
+	data, err := s.Read(indexPath)
+	if err != nil {
+		return ArtifactIndexMeta{}, fmt.Errorf("storage: failed to lookup artifact %q: %w", artifactID, err)
+	}
+
+	var meta ArtifactIndexMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return ArtifactIndexMeta{}, fmt.Errorf("storage: failed to parse artifact meta %q: %w", artifactID, err)
+	}
+
+	return meta, nil
+}
+
 
 // Read retrieves the bytes stored under key.
 // Returns (nil, ErrNotFound) if the key does not exist.

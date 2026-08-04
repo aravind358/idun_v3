@@ -68,6 +68,14 @@ func (m *memStore) List(prefix string) ([]string, error) {
 	return out, nil
 }
 
+func (m *memStore) StoreArtifact(artifactID string, meta storage.ArtifactIndexMeta, payloadRef string, data []byte) error {
+	return m.Write(payloadRef, data)
+}
+
+func (m *memStore) LookupArtifact(artifactID string) (storage.ArtifactIndexMeta, error) {
+	return storage.ArtifactIndexMeta{}, nil
+}
+
 func setupRegistry(t *testing.T) *registry.Service {
 	reg := registry.NewService()
 	_ = reg.Start()

@@ -19,11 +19,9 @@ func TestSynthesize(t *testing.T) {
 		Build()
 
 	primary := NewHypothesis("primary_intent", 0.9, 0.0, LayerNeuralClassifier, nil)
-	ambSet := []Hypothesis{
-		NewHypothesis("secondary_intent", 0.8, 0.1, LayerNeuralClassifier, nil),
-	}
+	amb := NewHypothesis("secondary_intent", 0.8, 0.1, LayerNeuralClassifier, nil)
 
-	result, err := Synthesize(env, primary, ambSet, StatusAmbiguous)
+	result, err := Synthesize(env, primary, []Hypothesis{amb}, StatusAmbiguous, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -60,7 +58,7 @@ func TestSynthesize_Impasse(t *testing.T) {
 
 	primary := NewHypothesis("unresolved_intent", 0.0, 0.0, LayerReflexiveGrammar, nil)
 
-	result, err := Synthesize(env, primary, nil, StatusFailed)
+	result, err := Synthesize(env, primary, nil, StatusFailed, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}

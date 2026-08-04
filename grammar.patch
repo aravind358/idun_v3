@@ -1,0 +1,41 @@
+diff --git a/intelligence/understanding/grammar.go b/intelligence/understanding/grammar.go
+index 2fee4a5..3ca4aee 100644
+--- a/intelligence/understanding/grammar.go
++++ b/intelligence/understanding/grammar.go
+@@ -30,6 +30,35 @@ func NewExactKeywordRule(id, phrase, intent string, conf float64) *ExactKeywordR
+ 	}
+ }
+ 
++// PatternRule matches when the cleaned utterance matches a regex pattern.
++type PatternRule struct {
++	id      string
++	pattern *regexp.Regexp
++	intent  string
++	conf    float64
++}
++
++// NewPatternRule creates a rule matching a regex pattern.
++func NewPatternRule(id, expr, intent string, conf float64) *PatternRule {
++	return &PatternRule{
++		id:      id,
++		pattern: regexp.MustCompile(expandPattern(expr)),
++		intent:  intent,
++		conf:    conf,
++	}
++}
++
++func expandPattern(expr string) string {
++	for k, v := range DefaultSynonyms {
++		synGroup := k
++		if len(v) > 0 {
++			synGroup = k + "|" + strings.Join(v, "|")
++		}
++		expr = strings.ReplaceAll(expr, "{"+k+"}", "(?:"+synGroup+")")
++	}
++	return expr
++}
++
+ func (r *ExactKeywordRule) ID() string { return r.id }
+ 
+ func (r *ExactKeywordRule) Match(norm NormalizedText) (string, []Slot, float64, bool) {
+

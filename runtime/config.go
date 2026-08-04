@@ -15,6 +15,10 @@ type RuntimeConfiguration struct {
 	// StoragePath defines the root file path for persistent records and snapshots.
 	StoragePath string `json:"storage_path"`
 
+	// Timezone specifies the local timezone for the Time Core Service.
+	// If empty, time.Local is used.
+	Timezone string `json:"timezone"`
+
 	// EnableLogging determines whether stdout/stderr structured logging is active.
 	EnableLogging bool `json:"enable_logging"`
 
@@ -48,6 +52,7 @@ func DefaultConfiguration() RuntimeConfiguration {
 	return RuntimeConfiguration{
 		RuntimeVersion:          "2.0.0-FROZEN",
 		StoragePath:             "./data/runtime",
+		Timezone:                "",
 		EnableLogging:           true,
 		DebugMode:               false,
 		ReplayMode:              false,

@@ -20,7 +20,8 @@ func testRealizationModel() string {
 	if m := os.Getenv("IDUN_REALIZATION_MODEL"); m != "" {
 		return m
 	}
-	return "llama3.1:8b"
+	// Use mock by default in tests to avoid 180s hangs when Ollama is unavailable
+	return "mock"
 }
 
 func TestRuntimeHost_Lifecycle(t *testing.T) {
@@ -226,7 +227,7 @@ func TestLayer1EndToEndRuntimeDemonstration(t *testing.T) {
 
 	cfg := DefaultConfiguration()
 	cfg.StoragePath = tempDir
-	cfg.EnableLogging = false
+	cfg.EnableLogging = true
 
 	input := bytes.NewReader([]byte("Hello IDUN\n"))
 	outBuf := &syncBuffer{}
@@ -269,7 +270,7 @@ func TestLayer1ManualInteractionsSuite(t *testing.T) {
 
 	cfg := DefaultConfiguration()
 	cfg.StoragePath = tempDir
-	cfg.EnableLogging = false
+	cfg.EnableLogging = true
 
 	pipeReader, pipeWriter := io.Pipe()
 	outBuf := &syncBuffer{}

@@ -73,13 +73,23 @@ type CapabilityRequest struct {
 	ContextID     string
 }
 
+// RealizationStrategy defines how the Response Type Router should realize the result.
+type RealizationStrategy int
+
+const (
+	Deterministic RealizationStrategy = iota
+	Generative
+)
+
 // CapabilityResult is the normalized, semantically neutral output from execution.
 type CapabilityResult struct {
-	RequirementID string            `json:"requirement_id"`
-	Success       bool              `json:"success"`
+	RequirementID string                 `json:"requirement_id"`
+	Success       bool                   `json:"success"`
+	Realization   RealizationStrategy    `json:"realization"`
+	ResponseType  string                 `json:"response_type,omitempty"`
 	Data          map[string]interface{} `json:"data"`
-	Error         *CapabilityError  `json:"error,omitempty"`
-	Duration      time.Duration     `json:"duration"`
+	Error         *CapabilityError       `json:"error,omitempty"`
+	Duration      time.Duration          `json:"duration"`
 }
 
 // CapabilityError represents standardized failure modes without polluting semantic understanding.

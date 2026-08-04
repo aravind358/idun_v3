@@ -12,6 +12,7 @@ type SystemProvider interface {
 	GetCPUInfo(ctx context.Context) (map[string]interface{}, error)
 	GetMemoryInfo(ctx context.Context) (map[string]interface{}, error)
 	GetDiskInfo(ctx context.Context) (map[string]interface{}, error)
+	GetBatteryInfo(ctx context.Context) (map[string]interface{}, error)
 
 	// ExecutePower dispatches elevated power operations to the host.
 	ExecutePower(ctx context.Context, action SystemOperation) error

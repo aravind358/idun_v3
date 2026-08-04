@@ -26,9 +26,6 @@ func (s *SemanticInterpretation) Validate() error {
 	if s.confidence < 0.0 || s.confidence > 1.0 {
 		return fmt.Errorf("%w: Confidence must be between 0.0 and 1.0", ErrValidation)
 	}
-	if s.completeness < 0.0 || s.completeness > 1.0 {
-		return fmt.Errorf("%w: Completeness must be between 0.0 and 1.0", ErrValidation)
-	}
 
 	// V-06: PrimaryIntent must not be empty.
 	if s.primaryIntent == "" {
@@ -63,10 +60,7 @@ func (s *SemanticInterpretation) Validate() error {
 		return fmt.Errorf("%w: NegationMarker required when Negated is true", ErrValidation)
 	}
 
-	// V-21: ProcessedDurationMs must be >= 0
-	if s.processedDurationMs < 0.0 {
-		return fmt.Errorf("%w: ProcessedDurationMs must be >= 0", ErrValidation)
-	}
+
 
 	return nil
 }

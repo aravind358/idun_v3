@@ -230,14 +230,6 @@ func (s *SymbolicSpecialist) Evaluate(
 		if matchedRule != nil && matchedRule.Consequent != nil && matchedRule.Consequent.Validate() == nil {
 			proposedGoal = matchedRule.Consequent.Clone()
 			supportingPremises = append(supportingPremises, fmt.Sprintf("matched_rule=%s", matchedRule.RuleID))
-		} else if intent != "" {
-			proposedGoal = &SemanticGoal{
-				Kind:         GoalKindCommunicative,
-				Intent:       intent,
-				Target:       "user",
-				DesiredState: map[string]string{"intent_acknowledged": "true"},
-			}
-			supportingPremises = append(supportingPremises, "fallback_goal=true")
 		}
 
 		if proposedGoal != nil {

@@ -22,7 +22,7 @@ func TestMetadata(t *testing.T) {
 
 func TestExecuteInfo(t *testing.T) {
 	mockProvider := NewMockProvider(false)
-	cap := New(nil, mockProvider)
+	cap := New(nil, mockProvider, nil)
 
 	req := capabilities.CapabilityRequest{
 		RequirementID: "req-1",
@@ -51,7 +51,7 @@ func TestExecuteInfo(t *testing.T) {
 
 func TestExecutePower(t *testing.T) {
 	mockProvider := NewMockProvider(false)
-	cap := New(nil, mockProvider)
+	cap := New(nil, mockProvider, nil)
 
 	req := capabilities.CapabilityRequest{
 		RequirementID: "req-2",
@@ -74,7 +74,7 @@ func TestExecutePower(t *testing.T) {
 
 func TestExecuteInvalidOperation(t *testing.T) {
 	mockProvider := NewMockProvider(false)
-	cap := New(nil, mockProvider)
+	cap := New(nil, mockProvider, nil)
 
 	req := capabilities.CapabilityRequest{
 		RequirementID: "req-3",
@@ -103,7 +103,7 @@ func TestExecuteInvalidOperation(t *testing.T) {
 
 func TestExecuteProviderFailure(t *testing.T) {
 	mockProvider := NewMockProvider(true) // Configured to fail
-	cap := New(nil, mockProvider)
+	cap := New(nil, mockProvider, nil)
 
 	req := capabilities.CapabilityRequest{
 		RequirementID: "req-4",

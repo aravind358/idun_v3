@@ -1,1 +1,0 @@
-{"FrameVersion":"2.0","EnvelopeID":"5f5405ebbe137479e51fa7aead5c2e96","Status":"UNAMBIGUOUS","PrimaryHypothesis":{"Intent":"query_identity","CalibratedConfidence":0.7626666666666667,"SourceLayer":"Understanding.NeuralClassifier","Slots":[]},"AmbiguitySet":[],"ProcessedDurationMs":0.522}

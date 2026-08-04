@@ -39,10 +39,9 @@ func TestOrchestrator_Cascade(t *testing.T) {
 		},
 	}
 	deliberative := &mockSpecialist{
-		hyps: nil, // Shouldn't be called
+		hyps: nil,
 	}
-
-	orc := NewOrchestrator(grammar, neural, deliberative)
+	orc := NewOrchestrator(grammar, neural, deliberative, &mockExtractor{}, nil, nil, nil)
 	result, err := orc.Analyze(context.Background(), env)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -60,17 +59,18 @@ func TestOrchestrator_Cascade(t *testing.T) {
 	}
 
 	// Validate evaluator logic
-	if result.PrimaryIntent() != "turn_on_lights" {
-		t.Errorf("expected turn_on_lights, got %s", result.PrimaryIntent())
+	interp := result.Interpretations()[0]
+	if interp.PrimaryIntent() != "turn_on_lights" {
+		t.Errorf("expected turn_on_lights, got %s", interp.PrimaryIntent())
 	}
-	if result.Status() != StatusAmbiguous {
-		t.Errorf("expected AMBIGUOUS_BEAM status due to 0.05 delta, got %s", result.Status())
+	if interp.Status() != StatusAmbiguous {
+		t.Errorf("expected AMBIGUOUS_BEAM status due to 0.05 delta, got %s", interp.Status())
 	}
-	if len(result.AmbiguitySet()) != 1 {
-		t.Errorf("expected 1 ambiguity, got %d", len(result.AmbiguitySet()))
+	if len(interp.AmbiguitySet()) != 1 {
+		t.Errorf("expected 1 ambiguity, got %d", len(interp.AmbiguitySet()))
 	}
-	if result.AmbiguitySet()[0].DeltaFromPrimary() < 0.049 || result.AmbiguitySet()[0].DeltaFromPrimary() > 0.051 {
-		t.Errorf("expected delta 0.05, got %v", result.AmbiguitySet()[0].DeltaFromPrimary())
+	if interp.AmbiguitySet()[0].DeltaFromPrimary() < 0.049 || interp.AmbiguitySet()[0].DeltaFromPrimary() > 0.051 {
+		t.Errorf("expected delta 0.05, got %v", interp.AmbiguitySet()[0].DeltaFromPrimary())
 	}
 }
 
@@ -91,17 +91,19 @@ func TestOrchestrator_Impasse(t *testing.T) {
 			NewHypothesis("unknown_intent", 0.35, 0.0, LayerNeuralClassifier, nil),
 		},
 	}
-
-	orc := NewOrchestrator(nil, neural, nil)
+	orc := NewOrchestrator(nil, neural, nil, &mockExtractor{}, nil, nil, nil)
 	result, err := orc.Analyze(context.Background(), env)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	if result.Status() != StatusFailed {
-		t.Errorf("expected FAILED_IMPASSE, got %s", result.Status())
+	interp := result.Interpretations()[0]
+	if interp.Status() != StatusFailed {
+		t.Errorf("expected FAILED_IMPASSE, got %s", interp.Status())
 	}
-	if result.PrimaryIntent() != "unresolved_intent" {
-		t.Errorf("expected unresolved_intent, got %s", result.PrimaryIntent())
+	if interp.PrimaryIntent() != "unresolved_intent" {
+		t.Errorf("expected unresolved_intent, got %s", interp.PrimaryIntent())
 	}
 }
+type mockExtractor struct{}
+func (m *mockExtractor) Run(hyp Hypothesis, b *Builder) {}

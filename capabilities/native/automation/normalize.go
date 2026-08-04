@@ -10,6 +10,7 @@ func (c *Capability) normalizeResult(reqID string, start time.Time, data map[str
 	return capabilities.CapabilityResult{
 		RequirementID: reqID,
 		Success:       true,
+		Realization:   capabilities.Generative,
 		Data:          data,
 		Duration:      time.Since(start),
 	}
