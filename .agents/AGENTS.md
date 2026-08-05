@@ -287,3 +287,16 @@ Platform capability checks are responsible only for verifying runtime capability
 Native capabilities execute only authorized mechanical operations.
 
 Authorization responsibilities must never be duplicated across architectural layers.
+
+### Realization Ownership Rule
+Capabilities produce semantic facts only. They must never generate user-facing language or formatted responses.
+
+Presentation prepares those semantic facts for realization. It does not decide which realization engine to use.
+
+The RealizationPolicy is the sole component responsible for selecting the realization strategy. Realization-selection logic must never appear inside the Router.
+
+Realization Engines convert structured semantic data into user-facing communication. They do not perform semantic reasoning or modify the meaning of capability output.
+
+The Router orchestrates realization only — it retrieves capability results, builds a PresentationContext, delegates engine selection to the RealizationPolicy, and forwards the realized output. The Router must remain unchanged when the RealizationPolicy implementation is replaced.
+
+The World layer only displays or speaks the realized output produced by a Realization Engine. It does not perform realization, formatting, or semantic interpretation.

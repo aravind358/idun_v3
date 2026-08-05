@@ -901,9 +901,153 @@ Sprint 7 already verifies:
 - Runtime behavior
 - Documentation consistency
 - Engineering rule compliance
+- **Notes**: Must not change Understanding, Planning, or Realization layers. This is purely an Executive/Capability-level migration.
+
+## Post-Restoration Governance Enhancements (Phase 5.x)
+
+### Phase 5.x — Restoration Traceability Matrix
+**Objective**: Introduce a formal Traceability Matrix linking every restored artifact across the architecture.
+
+**Tasks**:
+- Generate a Traceability Matrix linking:
+  - Grammar Rules
+  - Intents
+  - Planning Mappings
+  - Application Capabilities
+  - Native Capabilities
+  - Verification Status
+- Detect orphaned or undocumented restoration artifacts.
+- Use the matrix for future architectural audits and regression analysis.
+
+### Phase 5.x — Architectural Exception Register
+**Objective**: Maintain a centralized register of intentional architectural limitations.
+
+**Tasks**:
+For each exception, record:
+- Component
+- Reason
+- Classification
+- Future Phase
+- Status
+
+*Example entries*:
+- Complex calculator expressions
+- Reminder scheduler RFC3339 limitation
+- Future temporal enhancements
+- Future Unified Policy Engine migration
+
+This register should clearly distinguish intentional MVP limitations from implementation defects.
+
+### Phase 5.x — Repository Certification Baseline
+**Objective**: Strengthen long-term auditability by introducing repository-level certification baselines.
+
+**Tasks**:
+- Create permanent Git tags for certified architectural baselines.
+- Record repository commit hashes in certification artifacts.
+- Allow future audits to compare against exact certified repository snapshots.
+
+### Phase 5.x — Change Control Framework
+**Objective**: Formalize architectural governance after restoration.
+
+**Tasks**:
+Introduce documented change-control procedures covering:
+- Architectural review requirements
+- Component impact analysis
+- Baseline modification process
+- Certification document revision policy
+
+This expands the current Change Control Statement into a complete governance framework.
+
+### Phase 5.x — Long-Term Certification Metrics
+**Objective**: Extend architectural certification beyond the restoration effort.
+
+Future certification metrics may include:
+- Traceability completeness
+- Architectural debt
+- Documentation coverage
+- Engineering rule coverage
+- Governance compliance
+- Long-term architectural drift analysis
+
+### Deferred Rationale
+These governance enhancements improve long-term maintainability, auditability, and architectural evolution. However, they are not prerequisites for certifying the deterministic restoration completed during Phase 4.
+
+Sprint 7 already verifies:
+- Restoration correctness
+- Architecture compliance
+- Runtime behavior
+- Documentation consistency
+- Engineering rule compliance
 - Security boundaries
 - Regression stability
 
 That evidence is sufficient to certify and freeze the Phase 4 restoration baseline.
 
 These governance enhancements are therefore intentionally scheduled for Phase 5.x, where the project transitions from restoration to long-term architectural evolution.
+
+---
+
+## Phase 5.x — Presentation Architecture Evolution
+
+These enhancements improve the long-term extensibility and modularity of the Presentation layer. They are intentionally deferred and must not modify the certified Phase 4 baseline.
+
+### Phase 5.x — PresentationContext Builder Simplification
+- **Priority**: Medium
+- **Status**: Future Work
+- **Objective**: Further reduce coupling between the Presentation layer and Capability internals.
+- **Current state**: `PresentationContextBuilder` exposes `FromCapabilityResult(capabilities.CapabilityResult)`, which means the builder API surface requires knowledge of the capabilities package. The builder is currently the only controlled boundary where `CapabilityResult` enters the Presentation layer.
+- **Desired implementation**: Simplify the construction API so the caller provides only presentation-level values, for example:
+  - `presentation.NewPresentationContext(responseType, strategy, intent, parentRef)`, or
+  - a builder that accepts individual fields without importing `capabilities.CapabilityResult` directly.
+  The internal translation of `capabilities.RealizationStrategy` → `policy.RealizationStrategy` should be hidden inside an adapter or factory, not visible in the public API.
+- **Goal**: The Presentation layer should be fully isolated from future Capability contract changes. If `CapabilityResult` gains or loses fields, the Presentation layer must not require updates.
+- **Deferred because**: The current `PresentationContextBuilder` already isolates the Router and Policy from `CapabilityResult`. The simplification is a UX improvement on the builder API, not a functional requirement.
+
+### Phase 5.x — RealizationPlan
+- **Priority**: Medium
+- **Status**: Future Work
+- **Objective**: Introduce an intermediate `RealizationPlan` object between `RealizationPolicy` and `RealizationEngine`.
+- **Current architecture**:
+  ```
+  PresentationContext → RealizationPolicy → RealizationEngine
+  ```
+- **Future architecture**:
+  ```
+  PresentationContext → RealizationPolicy → RealizationPlan → RealizationEngine
+  ```
+- **Motivation**: Today the policy selects only an engine. A `RealizationPlan` allows the policy to encode richer presentation instructions alongside the engine reference, without changing the `RealizationEngine` interface. A plan may carry:
+  - Realization engine reference
+  - Response style (professional, conversational, concise)
+  - Verbosity level
+  - Formatting preferences (markdown, plain text, rich text)
+  - GUI presentation hints
+  - Voice / TTS configuration
+  - Streaming options
+  - Adaptive presentation metadata for future learned models
+- **Benefit**: Engine selection and presentation planning remain separately evolvable. The Router is unchanged. Adding a new presentation dimension requires only extending `RealizationPlan`, not modifying the `RealizationPolicy` interface.
+- **Deferred because**: The current pipeline produces correct output without a plan object. This is an extensibility enhancement for Phase 5+ multi-modal or adaptive realization scenarios.
+
+### Phase 5.x — Learned Realization Policy
+- **Priority**: Low-Medium
+- **Status**: Future Work
+- **Objective**: Replace `DeterministicRealizationPolicy` with a learned realization selector without modifying the Router.
+- **Current implementation**: `DeterministicRealizationPolicy` uses a static two-level rule table (ResponseType → engine, Strategy fallback → engine).
+- **Future implementation**: `AdaptiveRealizationPolicy` (or `NeuralRealizationPolicy`) using a decision model that accepts richer inputs than response type alone. Possible future inputs include:
+  - Response type and semantic richness
+  - Originating intent
+  - Conversation history and state
+  - User preferences and accessibility settings
+  - Confidence score from the understanding layer
+  - Latency and execution budget
+  - Device capabilities and rendering environment
+  - Future optimization criteria
+- **Constraint**: The `RealizationPolicy` interface (`Select(ctx, PresentationContext) (RealizationEngine, error)`) and the Router must remain unchanged when this replacement occurs. Only the injected policy implementation is replaced.
+- **Deferred because**: The deterministic rule table is sufficient for the certified Phase 4 capabilities. A learned selector requires a training corpus and evaluation framework that does not yet exist.
+
+### Deferred Rationale
+
+These enhancements improve long-term extensibility and maintainability of the Presentation architecture but are not required for the certified deterministic restoration.
+
+The current implementation (`DeterministicRealizationPolicy`, `PresentationContextBuilder`, direct engine injection) already satisfies the Phase 4 architecture and certification requirements. The `RealizationPolicy` interface is stable and the Router is already decoupled from selection logic.
+
+These items are therefore intentionally scheduled for Phase 5.x, where the project extends the certified baseline with adaptive, multi-modal, and learned presentation capabilities.
