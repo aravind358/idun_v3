@@ -45,9 +45,7 @@ func (e *LegacyCapabilityExecutor) Execute(ctx context.Context, params map[strin
 				switch val {
 				case "take", "save", "set", "note":
 					v = "create"
-				case "open":
-					v = "read"
-				case "show":
+				case "open", "show", "read":
 					if _, hasTitle := params["title"]; hasTitle {
 						v = "read"
 					} else {
@@ -61,6 +59,10 @@ func (e *LegacyCapabilityExecutor) Execute(ctx context.Context, params map[strin
 			}
 		}
 		strParams[k] = fmt.Sprintf("%v", v)
+	}
+
+	if pi, ok := ctx.Value("planIntent").(string); ok && pi != "" {
+		strParams["intent"] = pi
 	}
 
 	// Default Note Naming Rule Implementation
@@ -108,7 +110,7 @@ func (e *MockCommunicativeExecutor) Execute(ctx context.Context, params map[stri
 	}
 
 	res := capabilities.CapabilityResult{
-		Realization:  capabilities.Generative,
+		Realization:  capabilities.Deterministic,
 		ResponseType: "communicative",
 		Data: map[string]interface{}{
 			"intent": intent,
@@ -119,7 +121,7 @@ func (e *MockCommunicativeExecutor) Execute(ctx context.Context, params map[stri
 }
 
 func (a *LegacyCapabilityRegistryAdapter) Resolve(capabilityID string) (CapabilityExecutor, error) {
-	if capabilityID == "mock.capability" {
+	if capabilityID == "sys-communicative-1" {
 		return &MockCommunicativeExecutor{intent: "communicative"}, nil
 	}
 

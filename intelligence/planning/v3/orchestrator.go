@@ -27,16 +27,19 @@ func (o *Orchestrator) Plan(ctx context.Context, interp *understanding.SemanticI
 	// We trace back to the first context if available
 	parentArtifactID := ""
 	envID := foundation.EnvelopeID("")
+	planIntent := ""
 	if len(reasonCtxs) > 0 {
 		parentArtifactID = string(reasonCtxs[0].ArtifactID())
 		envID = reasonCtxs[0].EnvelopeID()
+		planIntent = reasonCtxs[0].ResolvedIntent()
 	}
 
 	builder := NewBuilder().
 		ArtifactID(artifactID).
 		ParentArtifactID(foundation.ParentArtifactID(parentArtifactID)).
 		EnvelopeID(envID).
-		Timestamp(foundation.Timestamp(time.Now()))
+		Timestamp(foundation.Timestamp(time.Now())).
+		PlanIntent(planIntent)
 
 	var nodes []PlanNode
 	var edges []Dependency
@@ -53,8 +56,8 @@ func (o *Orchestrator) Plan(ctx context.Context, interp *understanding.SemanticI
 		var selectedCap CapabilityDescriptor
 		if len(caps) == 0 {
 			selectedCap = CapabilityDescriptor{
-				ID:          CapabilityID("mock.capability"),
-				Description: "Mock capability for " + reasonCtx.ResolvedIntent(),
+				ID:          CapabilityID("sys-communicative-1"),
+				Description: "Fallback communicative capability for " + reasonCtx.ResolvedIntent(),
 			}
 		} else {
 			selectedCap = caps[0]

@@ -1,0 +1,1 @@
+{"requirement_id":"app-files-1","success":false,"realization":0,"response_type":"files","operation":"delete","data":null,"error":{"code":"Execution","message":"remove C:\\Projects\\idun_v3\\test_folder: The directory is not empty.","retry":false},"duration":0}

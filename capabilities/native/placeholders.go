@@ -6,6 +6,7 @@ import (
 
 	"idun/capabilities"
 	nativefiles "idun/capabilities/native/files"
+	nativenetwork "idun/capabilities/native/network"
 	nativesystem "idun/capabilities/native/system"
 	nativetime "idun/capabilities/native/time"
 )
@@ -43,8 +44,9 @@ func (p *placeholderCapability) Execute(ctx context.Context, req capabilities.Ca
 func LoadNativeCapabilities(registry capabilities.CapabilityRegistry, deps NativeCapabilityDependencies) error {
 	caps := []capabilities.Capability{
 		nativetime.New(deps.Time),
-		nativesystem.New(nil, nativesystem.NewMockProvider(false), deps.Scheduler),
+		nativesystem.New(nil, nativesystem.NewNativeProvider(), deps.Scheduler),
 		nativefiles.New(nil, nativefiles.NewNativeProvider()),
+		nativenetwork.New(nil, nativenetwork.NewNativeProvider()),
 	}
 
 	for _, c := range caps {

@@ -136,5 +136,16 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 		Parameters:    nativeParams,
 	}
 
-	return sysCap.Execute(ctx, nativeReq)
+	res, err := sysCap.Execute(ctx, nativeReq)
+	if err != nil {
+		return res, err
+	}
+
+	// Intercept the native result to enrich it with presentation routing and semantic operation.
+	// We do NOT modify res.Data to preserve semantic purity.
+	res.Realization = capabilities.Deterministic
+	res.ResponseType = "system"
+	res.Operation = intent
+	
+	return res, nil
 }

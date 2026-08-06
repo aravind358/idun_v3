@@ -62,5 +62,5 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 	}
 
 	c.metrics.RecordSuccess(time.Since(start))
-	return c.normalizeResult(req.RequirementID, start, data), nil
+	return c.normalizeResult(req.RequirementID, start, req.Parameters["operation"], data), nil
 }

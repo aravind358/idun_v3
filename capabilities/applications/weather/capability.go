@@ -2,6 +2,7 @@ package weather
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -49,7 +50,12 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 		return c.normalizeError(req.RequirementID, start, "Execution", execErr)
 	}
 
-	return c.normalizeResult(req.RequirementID, start, data), nil
+	intentStr := req.Parameters["intent"]
+	if intentStr == "" {
+		intentStr = "query_weather"
+	}
+
+	return c.normalizeResult(req.RequirementID, start, intentStr, data), nil
 }
 
 func (c *Capability) validateRequest(req capabilities.CapabilityRequest) error {
@@ -59,7 +65,8 @@ func (c *Capability) validateRequest(req capabilities.CapabilityRequest) error {
 
 	operation := req.Parameters["operation"]
 	if operation == "" {
-		return errors.New("missing 'operation' parameter")
+		operation = string(OperationCurrent)
+		req.Parameters["operation"] = operation
 	}
 
 	op := WeatherOperation(operation)
@@ -69,7 +76,8 @@ func (c *Capability) validateRequest(req capabilities.CapabilityRequest) error {
 
 	location := req.Parameters["location"]
 	if location == "" {
-		return errors.New("missing 'location' parameter")
+		location = "Local"
+		req.Parameters["location"] = location
 	}
 
 	return nil
@@ -102,8 +110,8 @@ func (c *Capability) executeWeatherRequest(ctx context.Context, reqID string, op
 
 	// Resolve the Native Network Capability
 	// Note: We use "sys-net-1" or whatever the canonical ID/Name of the Native Network capability is.
-	// We'll use the Name "NetworkCapability" as a placeholder for resolution.
-	netCap, err := c.Resolver.Resolve(ctx, reqID, "NetworkCapability", networkParams)
+	// Note: We use "NativeNetworkCapability" as it is the canonical Name.
+	netCap, err := c.Resolver.Resolve(ctx, reqID, "NativeNetworkCapability", networkParams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve native network capability: %w", err)
 	}
@@ -125,22 +133,73 @@ func (c *Capability) executeWeatherRequest(ctx context.Context, reqID string, op
 		return nil, fmt.Errorf("native network request failed: %v", res.Error.Message)
 	}
 
-	// In a complete implementation, we would parse the JSON response from the network capability
-	// Here we just wrap the network response for the Generative engine
+	// Parse the JSON response from the network capability to extract semantic facts
+	type wttrDesc struct {
+		Value string `json:"value"`
+	}
+	type wttrCondition struct {
+		TempC         string       `json:"temp_C"`
+		TempF         string       `json:"temp_F"`
+		FeelsLikeC    string       `json:"FeelsLikeC"`
+		FeelsLikeF    string       `json:"FeelsLikeF"`
+		Humidity      string       `json:"humidity"`
+		WindspeedKmph string       `json:"windspeedKmph"`
+		Winddir16Point string      `json:"winddir16Point"`
+		Visibility    string       `json:"visibility"`
+		WeatherDesc   []wttrDesc   `json:"weatherDesc"`
+	}
+	type wttrResponse struct {
+		CurrentCondition []wttrCondition `json:"current_condition"`
+	}
+
+	var rawBytes []byte
+	if b, ok := res.Data["body"].([]byte); ok {
+		rawBytes = b
+	} else if s, ok := res.Data["body"].(string); ok {
+		rawBytes = []byte(s)
+	}
+
+	var semanticWeather map[string]interface{}
+
+	if len(rawBytes) > 0 {
+		var apiResp wttrResponse
+		if err := json.Unmarshal(rawBytes, &apiResp); err == nil && len(apiResp.CurrentCondition) > 0 {
+			cond := apiResp.CurrentCondition[0]
+			desc := "Unknown"
+			if len(cond.WeatherDesc) > 0 {
+				desc = cond.WeatherDesc[0].Value
+			}
+			semanticWeather = map[string]interface{}{
+				"TemperatureC":  cond.TempC,
+				"TemperatureF":  cond.TempF,
+				"FeelsLikeC":    cond.FeelsLikeC,
+				"FeelsLikeF":    cond.FeelsLikeF,
+				"Condition":     desc,
+				"Humidity":      cond.Humidity,
+				"WindSpeedKmph": cond.WindspeedKmph,
+				"WindDirection": cond.Winddir16Point,
+				"VisibilityKm":  cond.Visibility,
+			}
+		}
+	}
+
+	if semanticWeather == nil {
+		semanticWeather = map[string]interface{}{"Error": "No weather data retrieved"}
+	}
 	
 	return map[string]interface{}{
 		"location": location,
-		"type":     string(operation),
-		"raw_data": res.Data,
+		"weather":  semanticWeather,
 	}, nil
 }
 
-func (c *Capability) normalizeResult(reqID string, start time.Time, data map[string]interface{}) capabilities.CapabilityResult {
+func (c *Capability) normalizeResult(reqID string, start time.Time, operation string, data map[string]interface{}) capabilities.CapabilityResult {
 	return capabilities.CapabilityResult{
 		RequirementID: reqID,
 		Success:       true,
-		Realization:   capabilities.Generative, // Weather needs LLM to summarize/format the raw JSON
+		Realization:   capabilities.Deterministic, // Weather uses deterministic template now
 		ResponseType:  "weather",
+		Operation:     operation,
 		Data:          data,
 		Duration:      time.Since(start),
 	}

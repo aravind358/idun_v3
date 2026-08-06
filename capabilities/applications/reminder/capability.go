@@ -59,7 +59,7 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 		return c.normalizeError(req.RequirementID, start, "Execution", execErr)
 	}
 
-	return c.normalizeResult(req.RequirementID, start, data), nil
+	return c.normalizeResult(req.RequirementID, start, opStr, data), nil
 }
 
 func (c *Capability) validateRequest(req capabilities.CapabilityRequest) error {
@@ -99,7 +99,7 @@ func (c *Capability) executeSet(ctx context.Context, reqID string, params map[st
 		"time":      params["time"],
 	}
 
-	sysCap, err := c.Resolver.Resolve(ctx, reqID, "sys-native-1", sysParams)
+	sysCap, err := c.Resolver.Resolve(ctx, reqID, "NativeSystemManager", sysParams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve native system capability: %w", err)
 	}
@@ -129,7 +129,7 @@ func (c *Capability) executeCancel(ctx context.Context, reqID string, params map
 		"id":        params["id"],
 	}
 
-	sysCap, err := c.Resolver.Resolve(ctx, reqID, "sys-native-1", sysParams)
+	sysCap, err := c.Resolver.Resolve(ctx, reqID, "NativeSystemManager", sysParams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve native system capability: %w", err)
 	}
@@ -158,7 +158,7 @@ func (c *Capability) executeList(ctx context.Context, reqID string) (map[string]
 		"operation": "list_tasks",
 	}
 
-	sysCap, err := c.Resolver.Resolve(ctx, reqID, "sys-native-1", sysParams)
+	sysCap, err := c.Resolver.Resolve(ctx, reqID, "NativeSystemManager", sysParams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve native system capability: %w", err)
 	}
@@ -178,12 +178,13 @@ func (c *Capability) executeList(ctx context.Context, reqID string) (map[string]
 	return res.Data, nil
 }
 
-func (c *Capability) normalizeResult(reqID string, start time.Time, data map[string]interface{}) capabilities.CapabilityResult {
+func (c *Capability) normalizeResult(reqID string, start time.Time, opStr string, data map[string]interface{}) capabilities.CapabilityResult {
 	return capabilities.CapabilityResult{
 		RequirementID: reqID,
 		Success:       true,
 		Realization:   capabilities.Deterministic,
 		ResponseType:  "reminder",
+		Operation:     opStr,
 		Data:          data,
 		Duration:      time.Since(start),
 	}

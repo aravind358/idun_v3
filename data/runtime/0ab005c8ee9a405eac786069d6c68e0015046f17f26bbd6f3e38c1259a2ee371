@@ -1,0 +1,1 @@
+{"requirement_id":"app-files-1","success":true,"realization":0,"response_type":"files","operation":"check if","data":{"exists":true,"path":"C:\\Projects\\idun_v3\\test.txt"},"duration":0}

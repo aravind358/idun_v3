@@ -55,9 +55,9 @@ func TestRegression_OneExecutionPath(t *testing.T) {
 // is properly wired into the runtime and is invoked when a low-confidence input is received.
 func TestRegression_DeliberativeWorkerWiring(t *testing.T) {
 	cfg := DefaultConfiguration()
-	cfg.EnableLogging = false
+	cfg.EnableLogging = true
 
-	// Capture os.Stdout to verify devLog output for deliberative-parser
+	// Capture os.Stdout to verify output for deliberative-parser
 	oldStdout := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -65,7 +65,7 @@ func TestRegression_DeliberativeWorkerWiring(t *testing.T) {
 		os.Stdout = oldStdout
 	}()
 
-	inputBuf := bytes.NewBufferString("utterance that no local specialist recognizes\nexit\n")
+	inputBuf := bytes.NewBufferString("utterance that no local specialist recognizes\n")
 	outBuf := &syncBuffer{}
 
 	h, err := NewHost(cfg, WithIOReaders(inputBuf, outBuf))
@@ -89,7 +89,7 @@ func TestRegression_DeliberativeWorkerWiring(t *testing.T) {
 	_, _ = io.Copy(&stdoutBuf, r)
 
 	if !strings.Contains(stdoutBuf.String(), "deliberative-parser") {
-		t.Errorf("Regression Failure: expected Deliberative Worker to be invoked and request deliberative-parser")
+		t.Errorf("Regression Failure: expected Deliberative Worker to be invoked and request deliberative-parser. Got stdout:\n%s", stdoutBuf.String())
 	}
 }
 

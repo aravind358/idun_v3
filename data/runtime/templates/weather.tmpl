@@ -1,0 +1,11 @@
+Weather in {{.location}}:
+{{if not .weather.Error}}
+Temperature: {{.weather.TemperatureC}}°C / {{.weather.TemperatureF}}°F
+Feels Like: {{.weather.FeelsLikeC}}°C / {{.weather.FeelsLikeF}}°F
+Condition: {{.weather.Condition}}
+Wind: {{.weather.WindSpeedKmph}} km/h ({{.weather.WindDirection}})
+Humidity: {{.weather.Humidity}}%
+Visibility: {{.weather.VisibilityKm}} km
+{{else}}
+Current condition data unavailable: {{.weather.Error}}
+{{end}}

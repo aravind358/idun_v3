@@ -4,8 +4,10 @@ import (
 	"idun/capabilities"
 	"idun/capabilities/applications/calculator"
 	"idun/capabilities/applications/core"
+	"idun/capabilities/applications/files"
 	"idun/capabilities/applications/notes"
 	"idun/capabilities/applications/reminder"
+	"idun/capabilities/applications/system"
 	"idun/capabilities/applications/weather"
 )
 
@@ -18,6 +20,8 @@ func LoadApplicationCapabilities(registry capabilities.CapabilityRegistry, deps 
 		reminder.New(deps),
 		notes.New(deps),
 		weather.New(deps),
+		files.New(deps.Resolver, "C:\\Projects\\idun_v3"),
+		system.New(deps.Resolver),
 	}
 
 	for _, c := range caps {

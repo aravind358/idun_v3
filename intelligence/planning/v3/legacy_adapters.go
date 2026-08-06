@@ -20,7 +20,7 @@ func (a *LegacyCapabilityAdapter) Discover(ctx context.Context, goal string) ([]
 	if a.manager == nil || a.manager.Registry() == nil {
 		// Mock capability if no manager is wired
 		return []CapabilityDescriptor{
-			NewCapabilityDescriptor(CapabilityID("mock.capability"), "Mock capability", []string{"target"}),
+			NewCapabilityDescriptor(CapabilityID("sys-communicative-1"), "Fallback communicative capability", []string{"target"}),
 		}, nil
 	}
 
@@ -33,7 +33,15 @@ func (a *LegacyCapabilityAdapter) Discover(ctx context.Context, goal string) ([]
 		match := false
 		switch goal {
 		case "query_weather":
-			match = c.ID() == "app-weather-1"
+			if c.ID() == "app-weather-1" {
+				desc := CapabilityDescriptor{
+					ID:          CapabilityID(c.ID()),
+					Description: meta.Description,
+					Params:      []string{"location", "operation"}, 
+				}
+				results = append(results, desc)
+			}
+			continue
 		case "query_time", "query_date":
 			match = c.ID() == "sys-time-1"
 		case "calculate", "math":
@@ -71,7 +79,7 @@ func (a *LegacyCapabilityAdapter) Discover(ctx context.Context, goal string) ([]
 				desc := CapabilityDescriptor{
 					ID:          CapabilityID(c.ID()),
 					Description: meta.Description,
-					Params:      []string{"operation", "filename", "source", "destination", "directory"},
+					Params:      []string{"operation", "filename", "source", "destination", "directory", "path", "data_text"},
 				}
 				results = append(results, desc)
 			}
@@ -100,7 +108,7 @@ func (a *LegacyCapabilityAdapter) Discover(ctx context.Context, goal string) ([]
 		}
 	}
 
-	// We return empty if no match, allowing orchestrator.go to inject mock.capability for communicative intents.
+	// We return empty if no match, allowing orchestrator.go to inject sys-communicative-1 for communicative intents.
 
 	return results, nil
 }

@@ -1,0 +1,15 @@
+{{if eq .intent "greet_user"}}
+Hello! How can I assist you today?
+{{else if eq .intent "system_help"}}
+I am IDUN, your intelligent assistant. I can help you with:
+- Managing files and notes
+- Checking the weather
+- Running system commands (like querying battery or shutting down)
+- Telling the time and date
+- Performing basic calculations
+How can I help you today?
+{{else if eq .intent "unresolved_intent"}}
+I didn't understand that. Could you please rephrase or try another command?
+{{else}}
+I'm not sure how to respond to that right now.
+{{end}}

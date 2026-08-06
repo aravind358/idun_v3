@@ -229,6 +229,11 @@ func TestLayer1EndToEndRuntimeDemonstration(t *testing.T) {
 	cfg.StoragePath = tempDir
 	cfg.EnableLogging = true
 
+	// Ensure templates exist in the temporary storage path
+	templatesDir := filepath.Join(tempDir, "templates")
+	os.MkdirAll(templatesDir, 0755)
+	os.WriteFile(filepath.Join(templatesDir, "communicative.tmpl"), []byte("Hello {{.intent}}"), 0644)
+
 	input := bytes.NewReader([]byte("Hello IDUN\n"))
 	outBuf := &syncBuffer{}
 
@@ -271,6 +276,11 @@ func TestLayer1ManualInteractionsSuite(t *testing.T) {
 	cfg := DefaultConfiguration()
 	cfg.StoragePath = tempDir
 	cfg.EnableLogging = true
+
+	// Ensure templates exist in the temporary storage path
+	templatesDir := filepath.Join(tempDir, "templates")
+	os.MkdirAll(templatesDir, 0755)
+	os.WriteFile(filepath.Join(templatesDir, "communicative.tmpl"), []byte("Hello {{.intent}}"), 0644)
 
 	pipeReader, pipeWriter := io.Pipe()
 	outBuf := &syncBuffer{}

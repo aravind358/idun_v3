@@ -63,7 +63,12 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 		return c.normalizeError(req.RequirementID, start, "Execution", execErr)
 	}
 
-	return c.normalizeResult(req.RequirementID, start, data), nil
+	intentStr := req.Parameters["intent"]
+	if intentStr == "" {
+		intentStr = "manage_notes"
+	}
+
+	return c.normalizeResult(req.RequirementID, start, intentStr, data), nil
 }
 
 func (c *Capability) validateRequest(req capabilities.CapabilityRequest) error {
@@ -277,12 +282,13 @@ func (c *Capability) executeList(ctx context.Context, reqID string) (map[string]
 	}, nil
 }
 
-func (c *Capability) normalizeResult(reqID string, start time.Time, data map[string]interface{}) capabilities.CapabilityResult {
+func (c *Capability) normalizeResult(reqID string, start time.Time, operation string, data map[string]interface{}) capabilities.CapabilityResult {
 	return capabilities.CapabilityResult{
 		RequirementID: reqID,
 		Success:       true,
 		Realization:   capabilities.Deterministic,
 		ResponseType:  "notes",
+		Operation:     operation,
 		Data:          data,
 		Duration:      time.Since(start),
 	}

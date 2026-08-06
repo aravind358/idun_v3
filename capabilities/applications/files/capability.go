@@ -98,10 +98,13 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 	directory := req.Parameters["directory"]
 	source := req.Parameters["source"]
 	destination := req.Parameters["destination"]
+	pathParam := req.Parameters["path"]
 
 	// Decide target path based on operation semantics
 	targetPath := ""
-	if filename != "" {
+	if pathParam != "" {
+		targetPath = pathParam
+	} else if filename != "" {
 		targetPath = filename
 	} else if directory != "" {
 		targetPath = directory
@@ -181,8 +184,23 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 		nativeOp = nativefiles.OperationCopyFile
 	case "rename":
 		nativeOp = nativefiles.OperationRenameFile
-	case "create", "make", "mkdir", "create_dir":
-		nativeOp = nativefiles.OperationCreateDirectory
+	case "create", "make", "mkdir", "create_dir", "set":
+		// Distinguish directory from file creation based on targetPath context if possible
+		// Default to create directory if "folder" or "dir" is in the command, or if it has no extension, but simple fallback is OK
+		if strings.Contains(strings.ToLower(req.Parameters["command"]), "file") || filepath.Ext(targetPath) != "" {
+			nativeOp = nativefiles.OperationCreateFile
+		} else {
+			nativeOp = nativefiles.OperationCreateDirectory
+		}
+	case "create_file":
+		nativeOp = nativefiles.OperationCreateFile
+	case "write", "update":
+		nativeOp = nativefiles.OperationWriteFile
+	case "append":
+		nativeOp = nativefiles.OperationAppendFile
+	case "exists", "check", "check if", "does":
+		nativeOp = nativefiles.OperationFileExists
+
 	case "list", "show":
 		nativeOp = nativefiles.OperationListDirectory
 	default:
@@ -212,5 +230,24 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 		Parameters:    nativeParams,
 	}
 
-	return fileCap.Execute(ctx, nativeReq)
+	res, err := fileCap.Execute(ctx, nativeReq)
+	if err != nil {
+		return res, err
+	}
+
+	// Normalize operation name for the template
+	normalizedOp := strings.ToLower(operation)
+	if normalizedOp == "check if" || normalizedOp == "check" || normalizedOp == "does" {
+		normalizedOp = "exists"
+	} else if normalizedOp == "remove" {
+		normalizedOp = "delete"
+	}
+
+	// Intercept the native result to enrich it with presentation routing and semantic operation.
+	// We do NOT modify res.Data to preserve semantic purity.
+	res.Realization = capabilities.Deterministic
+	res.ResponseType = "files"
+	res.Operation = normalizedOp
+	
+	return res, nil
 }

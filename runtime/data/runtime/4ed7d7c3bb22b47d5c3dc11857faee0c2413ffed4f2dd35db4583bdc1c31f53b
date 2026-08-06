@@ -1,0 +1,1 @@
+{"requirement_id":"app-weather-1","success":false,"realization":0,"data":null,"error":{"code":"Execution","message":"failed to resolve native network capability: no capability found matching name: NetworkCapability","retry":true},"duration":530000}

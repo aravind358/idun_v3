@@ -1,0 +1,1 @@
+{"requirement_id":"app-system-1","success":false,"realization":0,"response_type":"system","operation":"system_shutdown","data":null,"error":{"code":"Execution","message":"Operation blocked because Dangerous Operations Mode is disabled. Real shutdown is disabled.","retry":false},"duration":0}

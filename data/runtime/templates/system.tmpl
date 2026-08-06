@@ -1,0 +1,8 @@
+{{ if eq .operation "query_battery" }}Battery is at {{ .Percentage }}%.{{ if .Charging }} Currently charging.{{ else }} Not charging.{{ end }}
+{{ else if eq .operation "query_memory" }}Memory usage: {{ .Used }} of {{ .Total }} used.
+{{ else if eq .operation "query_cpu" }}CPU usage: {{ .Load }}%.
+{{ else if eq .operation "query_disk" }}Disk usage: {{ .Used }} of {{ .Total }} used on {{ .Path }}.
+{{ else if eq .operation "system_shutdown" }}Shutting down the system.
+{{ else if eq .operation "system_restart" }}Restarting the system.
+{{ else if eq .operation "system_lock" }}Locking the system.
+{{ else }}System operation completed successfully.{{ end }}

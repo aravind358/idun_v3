@@ -1,0 +1,174 @@
+version: '1.0'
+owner: Runtime Team
+last_updated: '2026-08-06'
+features:
+- feature: Greetings
+  severity: Medium
+  tests:
+  - input:
+    - hello
+    - hi
+    expected:
+      operation: greet_user
+      response:
+        contains:
+        - Hello
+        regex: (?i)hello|hi|greetings
+  - input:
+    - good morning
+    - good afternoon
+    - good evening
+    expected:
+      operation: greet_user
+      response:
+        regex: (?i)morning|afternoon|evening|hello|hi|greetings
+- feature: Time
+  severity: High
+  tests:
+  - input:
+    - time
+    - what time is it
+    - tell me time
+    expected:
+      operation: query_time
+      response:
+        must_not_contain:
+        - '{'
+        regex: \d{1,2}:\d{2}
+- feature: Date
+  severity: High
+  tests:
+  - input:
+    - date
+    - today's date
+    - what is today's date
+    expected:
+      operation: query_date
+      response:
+        must_not_contain:
+        - '{'
+        regex: 20\d\d|[a-zA-Z]+ \d{1,2}
+- feature: Calculator
+  severity: Medium
+  tests:
+  - input:
+    - 2+2
+    expected:
+      operation: calculate
+      response:
+        contains:
+        - '4'
+  - input:
+    - 55*7
+    expected:
+      operation: calculate
+      response:
+        contains:
+        - '385'
+  - input:
+    - 100/4
+    expected:
+      operation: calculate
+      response:
+        contains:
+        - '25'
+- feature: Weather
+  severity: Medium
+  tests:
+  - input:
+    - weather
+    - weather in Hyderabad
+    expected:
+      operation: query_weather
+      response:
+        must_not_contain:
+        - '{'
+        regex: (?i)weather|hyderabad
+- feature: Files
+  severity: Medium
+  tests:
+  - input:
+    - create folder test
+    expected:
+      operation: set
+      response:
+        regex: (?i)success|created|folder
+  - input:
+    - delete folder test
+    expected:
+      operation: delete
+      response:
+        regex: (?i)success|deleted|folder
+- feature: Notes
+  severity: High
+  tests:
+  - input:
+    - create note shopping
+    expected:
+      operation: manage_notes
+      response:
+        regex: (?i)note.*shopping.*created|saved
+  - input:
+    - read notes
+    expected:
+      operation: manage_notes
+      response:
+        regex: (?i)shopping|note
+  - input:
+    - delete note shopping
+    expected:
+      operation: manage_notes
+      response:
+        regex: (?i)deleted|removed
+- feature: System
+  severity: Medium
+  tests:
+  - input:
+    - battery
+    expected:
+      operation: query_battery
+      response:
+        contains:
+        - Battery
+        must_not_contain:
+        - '{'
+        - status_code
+        regex: \d+%|battery
+  - input:
+    - memory
+    expected:
+      operation: query_memory
+      response:
+        must_not_contain:
+        - '{'
+        - status_code
+        regex: (?i)memory|gb|mb
+  - input:
+    - shutdown
+    expected:
+      operation: system_shutdown
+      response:
+        must_not_contain:
+        - '{'
+        - status_code
+        regex: (?i)shut|down
+- feature: Help
+  severity: Medium
+  tests:
+  - input:
+    - help
+    expected:
+      operation: system_help
+      response:
+        regex: (?i)idun|can assist|help
+- feature: Unknown Input
+  severity: High
+  tests:
+  - input:
+    - abracadabra
+    - qwerty
+    - asdfgh
+    expected:
+      operation: unresolved_intent
+      response:
+        regex: (?i)didn't understand|not sure|unable

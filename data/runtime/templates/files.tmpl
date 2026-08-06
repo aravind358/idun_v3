@@ -1,0 +1,14 @@
+{{ if .Error }}
+Failed to {{ .operation }}: {{ .Error.Message }}
+{{ else }}
+{{ if or (eq .operation "set") (eq .operation "create") }}Created/Updated {{ .path }}
+{{ else if eq .operation "delete" }}Deleted {{ .path }}
+{{ else if eq .operation "move" }}Moved from {{ .src }} to {{ .dest }}
+{{ else if eq .operation "copy" }}Copied from {{ .src }} to {{ .dest }}
+{{ else if eq .operation "rename" }}Renamed from {{ .src }} to {{ .dest }}
+{{ else if eq .operation "read" }}Read file at {{ .path }}
+{{ else if eq .operation "write" }}Written to file at {{ .path }}
+{{ else if eq .operation "exists" }}Checked existence of {{ .path }}: {{ if .exists }}Found{{ else }}Not Found{{ end }}
+{{ else if eq .operation "list" }}Listed directory at {{ .path }}
+{{ else }}File operation completed successfully.{{ end }}
+{{ end }}

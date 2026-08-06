@@ -128,23 +128,31 @@ func (o *Orchestrator) Analyze(ctx context.Context, env *perception.PerceptionEn
 }
 
 func (o *Orchestrator) cascadeAnalyze(ctx context.Context, env *perception.PerceptionEnvelope) []Hypothesis {
+	var bestHyps []Hypothesis
+
 	if o.grammar != nil {
 		if hyps, err := o.grammar.Analyze(ctx, env); err == nil && len(hyps) > 0 {
-			return hyps
+			bestHyps = hyps
+			if hyps[0].Intent() != "unresolved_intent" {
+				return hyps
+			}
 		}
 	}
 
 	if o.neural != nil {
 		if hyps, err := o.neural.Analyze(ctx, env); err == nil && len(hyps) > 0 {
-			return hyps
+			bestHyps = hyps
+			if hyps[0].Intent() != "unresolved_intent" {
+				return hyps
+			}
 		}
 	}
 
 	if o.deliberative != nil {
 		if hyps, err := o.deliberative.Analyze(ctx, env); err == nil && len(hyps) > 0 {
-			return hyps
+			bestHyps = hyps
 		}
 	}
 
-	return []Hypothesis{}
+	return bestHyps
 }

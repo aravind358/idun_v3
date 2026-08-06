@@ -1,11 +1,11 @@
 Notes Status: {{.status}}
 {{if eq .status "created"}}
-Created note: '{{.title}}'
+Note '{{.title}}' created.
 {{else if eq .status "found"}}
 Title: {{.title}}
 Content: {{.content}}
 {{else if eq .status "updated"}}
-Updated note: '{{.title}}'
+Note '{{.title}}' updated.
 {{else if eq .status "deleted"}}
-Deleted note: '{{.title}}'
+Note '{{.title}}' deleted.
 {{end}}

@@ -82,11 +82,19 @@ const (
 )
 
 // CapabilityResult is the normalized, semantically neutral output from execution.
+// It acts as the strict semantic contract between Capabilities and the Presentation layer.
+//
+// Semantic Ownership Boundaries:
+// - ResponseType: Presentation routing category only (e.g., "files", "system")
+// - Operation:    Semantic operation executed by the capability (e.g., "CreateDirectory")
+// - Data:         Pure semantic facts only. No presentation-specific fields.
+// - Realization:  Requested realization strategy (e.g., Deterministic vs Generative)
 type CapabilityResult struct {
 	RequirementID string                 `json:"requirement_id"`
 	Success       bool                   `json:"success"`
 	Realization   RealizationStrategy    `json:"realization"`
 	ResponseType  string                 `json:"response_type,omitempty"`
+	Operation     string                 `json:"operation,omitempty"`
 	Data          map[string]interface{} `json:"data"`
 	Error         *CapabilityError       `json:"error,omitempty"`
 	Duration      time.Duration          `json:"duration"`

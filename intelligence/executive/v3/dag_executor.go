@@ -2,8 +2,10 @@ package v3
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"idun/intelligence/planning/v3"
+	"os"
 	"sync"
 	"time"
 )
@@ -93,7 +95,7 @@ func (e *DAGExecutor) Execute(ctx context.Context, plan *v3.ExecutionPlan) (map[
 				}
 
 				wg.Add(1)
-				go e.executeNode(ctx, node, &wg, doneQueue, errorChan, results, &mu)
+				go e.executeNode(ctx, plan, node, &wg, doneQueue, errorChan, results, &mu)
 			}
 		}
 	}()
@@ -168,7 +170,7 @@ func (e *DAGExecutor) Execute(ctx context.Context, plan *v3.ExecutionPlan) (map[
 	return results, StatusCompleted, nil
 }
 
-func (e *DAGExecutor) executeNode(ctx context.Context, node v3.PlanNode, wg *sync.WaitGroup, done chan<- string, errChan chan<- error, results map[string]NodeResult, mu *sync.Mutex) {
+func (e *DAGExecutor) executeNode(ctx context.Context, plan *v3.ExecutionPlan, node v3.PlanNode, wg *sync.WaitGroup, done chan<- string, errChan chan<- error, results map[string]NodeResult, mu *sync.Mutex) {
 	defer wg.Done()
 
 	start := time.Now()
@@ -190,17 +192,25 @@ func (e *DAGExecutor) executeNode(ctx context.Context, node v3.PlanNode, wg *syn
 		return
 	}
 
+	// Inject PlanIntent if missing
+	params := node.BoundParams()
+	if _, ok := params["intent"]; !ok {
+		if plan != nil && plan.PlanIntent() != "" {
+			params["intent"] = plan.PlanIntent()
+		}
+	}
+
 	// 2. Execute Physical Capability
 	fmt.Printf("\n[Executive Trace] Executing Capability %q with parameters:\n", capID)
-	for k, v := range node.BoundParams() {
+	for k, v := range params {
 		fmt.Printf("    %s = %v\n", k, v)
 	}
 	fmt.Println()
-	payload, err := executor.Execute(ctx, node.BoundParams())
+	payload, err := executor.Execute(ctx, params)
 	if err != nil {
 		fmt.Printf("[Executive Trace] Capability %q failed: %v\n", capID, err)
 	} else {
-		fmt.Printf("[Executive Trace] Capability %q succeeded. Result: %v\n", capID, payload)
+		fmt.Printf("[Executive Trace] Capability %q succeeded. Result: %s\n", capID, payload)
 	}
 	duration := time.Since(start)
 
@@ -211,12 +221,46 @@ func (e *DAGExecutor) executeNode(ctx context.Context, node v3.PlanNode, wg *syn
 		execErr = err
 	} else if len(payload) > 0 {
 		// 3. Centralized CAS Storage
-		// Wait, if MemoryProvider fails?
 		ref, memErr := e.memory.StorePayload(ctx, payload)
 		if memErr != nil {
 			execErr = fmt.Errorf("failed to store payload in CAS: %w", memErr)
 		} else {
 			outputRef = ref
+		}
+		
+		// TODO: Architectural Debt
+		// This is a temporary testing hook for the Runtime Acceptance Harness.
+		// The Executive should not have knowledge of specific testing environments.
+		// In a future phase, this should be replaced by an Acceptance Observer that 
+		// subscribes to ExecutionCompleted events, completely removing this logic 
+		// from the execution pipeline.
+		if os.Getenv("IDUN_ACCEPTANCE_TEST") == "1" {
+			type capRes struct {
+				Operation    string `json:"operation"`
+				ResponseType string `json:"response_type"`
+				Data         struct {
+					Intent string `json:"intent"`
+				} `json:"data"`
+			}
+			var cr capRes
+			if json.Unmarshal(payload, &cr) == nil {
+				op := cr.Operation
+				if op == "" && cr.Data.Intent != "" {
+					op = cr.Data.Intent
+				}
+
+				type execMeta struct {
+					Capability   string `json:"capability"`
+					Operation    string `json:"operation"`
+					ResponseType string `json:"response_type"`
+				}
+				metaBytes, _ := json.Marshal(execMeta{
+					Capability:   capID,
+					Operation:    op,
+					ResponseType: cr.ResponseType,
+				})
+				fmt.Printf("\n[Acceptance Metadata] %s\n", metaBytes)
+			}
 		}
 	}
 

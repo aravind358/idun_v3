@@ -300,3 +300,11 @@ Realization Engines convert structured semantic data into user-facing communicat
 The Router orchestrates realization only — it retrieves capability results, builds a PresentationContext, delegates engine selection to the RealizationPolicy, and forwards the realized output. The Router must remain unchanged when the RealizationPolicy implementation is replaced.
 
 The World layer only displays or speaks the realized output produced by a Realization Engine. It does not perform realization, formatting, or semantic interpretation.
+
+### Semantic Contract Ownership Boundaries
+The `CapabilityResult` forms the strict semantic boundary between Execution and Presentation. Its fields have precisely isolated meanings:
+- `Intent`: Cognitive interpretation (owned by the Understanding layer).
+- `Operation`: Semantic operation performed by the capability (e.g. `CreateDirectory`).
+- `ResponseType`: Presentation routing category only.
+- `Data`: Pure semantic facts only. No presentation-specific formatting.
+- `Realization`: Requested realization strategy (e.g. Deterministic).

@@ -32,6 +32,10 @@ func (b *Builder) Timestamp(t foundation.Timestamp) *Builder {
 	b.obj.timestamp = t
 	return b
 }
+func (b *Builder) PlanIntent(intent string) *Builder {
+	b.obj.planIntent = intent
+	return b
+}
 func (b *Builder) Nodes(nodes []PlanNode) *Builder {
 	b.obj.nodes = make([]PlanNode, len(nodes))
 	copy(b.obj.nodes, nodes)

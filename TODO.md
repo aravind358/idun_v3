@@ -19,9 +19,20 @@ Runtime Investigation Verdict
 📋 Future improvement: Move conversational content generation into the cognitive layer while keeping Language Realization responsible only for natural-language expression.
 ```
 
+## 0. Future — Dangerous Operations Mode
+- **Priority**: Future Backlog
+- **Category**: Testing / Acceptance
+- **Background**: Commands like `shutdown`, `restart`, `sleep`, or `delete system files` should not execute during normal acceptance testing. 
+- **Goal**: Add a dedicated Dangerous Operations Test Mode that:
+  1. Requires explicit opt-in.
+  2. Confirms the action before execution.
+  3. Can simulate execution (dry-run) or perform the real operation.
+  4. Is excluded from routine acceptance runs.
+- **Benefit**: Verify dangerous capabilities safely without risking the development machine.
+
 ---
 
-## 0. Architecture & System-Wide Pipelines
+## 1. Architecture & System-Wide Pipelines
 
 ### Introduce Structured Semantic Response Object
 - **Priority**: High
@@ -1044,6 +1055,22 @@ These enhancements improve the long-term extensibility and modularity of the Pre
 - **Constraint**: The `RealizationPolicy` interface (`Select(ctx, PresentationContext) (RealizationEngine, error)`) and the Router must remain unchanged when this replacement occurs. Only the injected policy implementation is replaced.
 - **Deferred because**: The deterministic rule table is sufficient for the certified Phase 4 capabilities. A learned selector requires a training corpus and evaluation framework that does not yet exist.
 
+### Phase 5.x — PresentationContext Immutability
+- **Objective**: Prevent accidental mutation of `PresentationContext` after construction.
+- **Future Tasks**:
+  - Introduce an immutable `PresentationContext` (e.g. expose only getter methods).
+  - Restrict mutation exclusively to the `PresentationContextBuilder`.
+  - Treat the built context as read-only throughout the Presentation pipeline.
+- **Deferred Rationale**: The current builder pattern is sufficient for the certified architecture. Immutability is a future maintainability improvement.
+
+### Phase 5.x — Presentation View Model
+- **Objective**: Introduce an explicit Presentation View Model between semantic data and template rendering.
+- **Future Tasks**:
+  - Add a Presentation View Model layer.
+  - Allow deterministic templates to consume only view models instead of raw semantic data.
+  - Keep semantic contracts and presentation models independently evolvable.
+- **Deferred Rationale**: The current merge of semantic data with presentation context is appropriate for Phase 5.0. A dedicated view model would improve long-term maintainability but is not required for adopting the Presentation pipeline.
+
 ### Deferred Rationale
 
 These enhancements improve long-term extensibility and maintainability of the Presentation architecture but are not required for the certified deterministic restoration.
@@ -1051,3 +1078,13 @@ These enhancements improve long-term extensibility and maintainability of the Pr
 The current implementation (`DeterministicRealizationPolicy`, `PresentationContextBuilder`, direct engine injection) already satisfies the Phase 4 architecture and certification requirements. The `RealizationPolicy` interface is stable and the Router is already decoupled from selection logic.
 
 These items are therefore intentionally scheduled for Phase 5.x, where the project extends the certified baseline with adaptive, multi-modal, and learned presentation capabilities.
+
+---
+
+## Phase 5.x — Runtime Acceptance Evolution (Completed)
+
+✅ **Suggested Ownership & File Mapping**: Implemented in `cmd/runtime_acceptance/main.go`. The test harness now maps failing categories to their likely owner layer and source file, reducing mean time to investigation.
+
+✅ **Runtime Acceptance Coverage**: Implemented. The test harness now dynamically tracks the universe of supported capabilities and reports total coverage percentage to prevent un-tested capabilities from being released.
+
+✅ **Behavioral Validation Upgrade (Phase 5.2.x)**: Implemented. The Runtime Acceptance Test Harness was completely overhauled to validate user-facing behavior first and explicitly classify failing layers using structured metadata from the runtime.

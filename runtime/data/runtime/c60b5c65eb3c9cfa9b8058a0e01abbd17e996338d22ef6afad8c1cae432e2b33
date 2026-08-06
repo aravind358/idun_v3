@@ -1,0 +1,1 @@
+{"requirement_id":"app-calc-1","success":true,"realization":0,"response_type":"calculator","data":{"a":3,"b":3,"op":"add","result":6},"duration":788000}

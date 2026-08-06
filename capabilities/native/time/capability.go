@@ -59,11 +59,17 @@ func (c *TimeCapability) Execute(ctx context.Context, req capabilities.Capabilit
 		responseType = "date"
 	}
 
+	operation := "query_time"
+	if responseType == "date" {
+		operation = "query_date"
+	}
+
 	return capabilities.CapabilityResult{
 		RequirementID: req.RequirementID,
 		Success:       true,
 		Realization:   capabilities.Deterministic,
 		ResponseType:  responseType,
+		Operation:     operation,
 		Data:          data,
 		Duration:      time.Since(start),
 	}, nil

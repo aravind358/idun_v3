@@ -33,9 +33,9 @@ var DefaultSynonyms = map[string][]string{
 	"weather":  {"temperature", "forecast", "conditions"},
 	"status":   {"system status", "current status"},
 	"cancel":   {"stop", "abort", "nevermind", "never mind"},
-	"hello":    {"hi", "hey", "greetings", "good morning", "good afternoon"},
+	"hello":    {"hi", "hey", "greetings", "good morning", "good afternoon", "good evening"},
 	"goodbye":  {"bye", "see you", "farewell", "cya"},
-	"what_is":  {"what's", "how is", "how's", "what"},
+	"what_is":  {"what is", "what's", "how is", "how's", "what"},
 	"set":      {"create", "make", "add"},
 	"alarm":    {"timer", "alert"},
 }

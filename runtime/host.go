@@ -43,6 +43,7 @@ import (
 	"idun/kernel"
 	"idun/presentation"
 	"idun/presentation/deterministic"
+	"idun/presentation/policy"
 	"idun/presentation/realization"
 	"idun/presentation/router"
 	"idun/world"
@@ -602,18 +603,30 @@ func (h *RuntimeHost) Build() error {
 		}
 		h.realizationSvc = rlzSvc
 
-		// Wire up the new Response Type Router
+		// Wire the RealizationPolicy.
+		// ResponseType rules (precise): map known response types directly to their engine.
+		// Strategy fallback (coarse): used for capabilities that omit ResponseType (e.g. Files, System).
 		detEngine := deterministic.NewEngine(filepath.Join(h.cfg.StoragePath, "templates"))
-		
-		engines := map[capabilities.RealizationStrategy]presentation.RealizationEngine{
-			capabilities.Deterministic: detEngine,
-			capabilities.Generative:    rlzSvc,
+		responseTypeRules := map[string]presentation.RealizationEngine{
+			"calculator": detEngine,
+			"time":       detEngine,
+			"date":       detEngine,
+			"notes":      detEngine,
+			"reminder":   detEngine,
+			"files":      detEngine,
+			"system":     detEngine,
+			"weather":    detEngine,
 		}
-		
+		strategyFallback := map[presentation.RealizationStrategy]presentation.RealizationEngine{
+			presentation.StrategyDeterministic: detEngine,
+			presentation.StrategyGenerative:    rlzSvc,
+		}
+		realizationPolicy := policy.NewDeterministicRealizationPolicy(responseTypeRules, strategyFallback)
+
 		h.routerSvc = router.NewService(
 			&routerWorkspaceSubAdapter{ws: h.workspaceSvc},
 			&payloadStorerAdapter{store: h.storageSvc},
-			engines,
+			realizationPolicy,
 		)
 	}
 

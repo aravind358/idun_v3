@@ -1,0 +1,1 @@
+{"requirement_id":"app-files-1","success":false,"realization":0,"response_type":"files","operation":"write","data":null,"error":{"code":"Execution","message":"open C:\\Projects\\idun_v3: is a directory","retry":false},"duration":520000}

@@ -6,11 +6,12 @@ import (
 	"idun/capabilities"
 )
 
-func (c *Capability) normalizeResult(reqID string, start time.Time, data map[string]interface{}) capabilities.CapabilityResult {
+func (c *Capability) normalizeResult(reqID string, start time.Time, operation string, data map[string]interface{}) capabilities.CapabilityResult {
 	return capabilities.CapabilityResult{
 		RequirementID: reqID,
 		Success:       true,
 		Realization:   capabilities.Generative,
+		Operation:     operation,
 		Data:          data,
 		Duration:      time.Since(start),
 	}

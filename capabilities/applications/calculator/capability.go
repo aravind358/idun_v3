@@ -27,6 +27,7 @@ func New(deps core.AppCapabilityDependencies) *Capability {
 // Execute fulfills the Capability interface.
 func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityRequest) (capabilities.CapabilityResult, error) {
 	start := time.Now()
+	fmt.Printf("[DEBUG] Calculator capability received parameters: %v\n", req.Parameters)
 
 	// 1. Validation
 	if err := c.validateRequest(req); err != nil {
@@ -48,7 +49,12 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 		return c.normalizeError(req.RequirementID, start, "Execution", execErr)
 	}
 
-	return c.normalizeResult(req.RequirementID, start, data), nil
+	intentStr := req.Parameters["intent"]
+	if intentStr == "" {
+		intentStr = "calculate"
+	}
+
+	return c.normalizeResult(req.RequirementID, start, intentStr, data), nil
 }
 
 func (c *Capability) validateRequest(req capabilities.CapabilityRequest) error {
@@ -123,12 +129,13 @@ func (c *Capability) executeMath(operation CalculatorOperation, params map[strin
 	}, nil
 }
 
-func (c *Capability) normalizeResult(reqID string, start time.Time, data map[string]interface{}) capabilities.CapabilityResult {
+func (c *Capability) normalizeResult(reqID string, start time.Time, operation string, data map[string]interface{}) capabilities.CapabilityResult {
 	return capabilities.CapabilityResult{
 		RequirementID: reqID,
 		Success:       true,
 		Realization:   capabilities.Deterministic, // Pure math is deterministic
 		ResponseType:  "calculator",
+		Operation:     operation,
 		Data:          data,
 		Duration:      time.Since(start),
 	}

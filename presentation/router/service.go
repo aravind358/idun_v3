@@ -11,6 +11,7 @@ import (
 	"idun/intelligence/communication"
 	"idun/intelligence/executive/v3"
 	"idun/presentation"
+	"idun/presentation/policy"
 )
 
 type WorkspaceSubscriberPublisher interface {
@@ -28,14 +29,17 @@ type PayloadStorer interface {
 }
 
 // Service is the Response Type Router.
+// The Router orchestrates execution only — it delegates realization-engine selection
+// exclusively to the injected RealizationPolicy. The Router must remain unchanged
+// when the policy implementation is replaced in future phases.
 type Service struct {
 	mu      sync.RWMutex
 	closed  atomic.Bool
 	started atomic.Bool
 
-	ws      WorkspaceSubscriberPublisher
-	storer  PayloadStorer
-	engines map[capabilities.RealizationStrategy]presentation.RealizationEngine
+	ws     WorkspaceSubscriberPublisher
+	storer PayloadStorer
+	policy policy.RealizationPolicy
 
 	sub       WorkspaceSubscription
 	svcCtx    context.Context
@@ -43,11 +47,12 @@ type Service struct {
 }
 
 // NewService creates a new Response Type Router.
-func NewService(ws WorkspaceSubscriberPublisher, storer PayloadStorer, engines map[capabilities.RealizationStrategy]presentation.RealizationEngine) *Service {
+// The provided RealizationPolicy is the sole component responsible for engine selection.
+func NewService(ws WorkspaceSubscriberPublisher, storer PayloadStorer, pol policy.RealizationPolicy) *Service {
 	return &Service{
-		ws:      ws,
-		storer:  storer,
-		engines: engines,
+		ws:     ws,
+		storer: storer,
+		policy: pol,
 	}
 }
 
@@ -151,18 +156,27 @@ func (s *Service) handleExecutionEnvelope(ctx context.Context, env communication
 		return nil
 	}
 
-	engine, ok := s.engines[capResult.Realization]
-	if !ok {
-		return fmt.Errorf("router: no realization engine registered for strategy %v", capResult.Realization)
-	}
-
+	// Derive routing headers before building PresentationContext.
 	responseID := "resp-" + env.ID
 	parentRef := env.ParentRef
 	if parentRef == "" {
 		parentRef = env.ID
 	}
 
-	realizedOut, err := engine.Realize(ctx, capResult, parentRef, responseID)
+	// Build a PresentationContext from the CapabilityResult.
+	// The Router and Policy depend only on PresentationContext — never on CapabilityResult internals.
+	pctx := presentation.NewPresentationContextBuilder().
+		FromCapabilityResult(capResult).
+		WithParentRef(parentRef).
+		Build()
+
+	engine, err := s.policy.Select(ctx, pctx)
+	if err != nil {
+		return fmt.Errorf("router: %w", err)
+	}
+
+
+	realizedOut, err := engine.Realize(ctx, capResult, pctx, responseID)
 	if err != nil {
 		return fmt.Errorf("router: realization engine failed: %w", err)
 	}

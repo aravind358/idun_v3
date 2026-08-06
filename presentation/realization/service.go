@@ -267,7 +267,7 @@ func (s *Service) handleExecutionEnvelope(ctx context.Context, env communication
 }
 
 // Realize implements presentation.RealizationEngine for the Generative path.
-func (s *Service) Realize(ctx context.Context, res capabilities.CapabilityResult, parentRef string, responseID string) (*presentation.RealizedOutput, error) {
+func (s *Service) Realize(ctx context.Context, res capabilities.CapabilityResult, pctx presentation.PresentationContext, responseID string) (*presentation.RealizedOutput, error) {
 	if s.closed.Load() {
 		return nil, ErrServiceClosed
 	}
@@ -283,7 +283,7 @@ func (s *Service) Realize(ctx context.Context, res capabilities.CapabilityResult
 		Verbosity:  "standard",
 		Language:   "en-US",
 		Modality:   "text",
-		ParentRef:  parentRef,
+		ParentRef:  pctx.ParentRef,
 		ResponseID: responseID,
 	}
 
@@ -335,7 +335,7 @@ func (s *Service) Realize(ctx context.Context, res capabilities.CapabilityResult
 	return &presentation.RealizedOutput{
 		OutputID:         "rlz-" + time.Now().UTC().Format("20060102150405.000000"),
 		SourceResponseID: responseID,
-		ParentRef:        parentRef,
+		ParentRef:        pctx.ParentRef,
 		RealizedText:     realizedText,
 		CreatedAt:        time.Now().UTC(),
 	}, nil

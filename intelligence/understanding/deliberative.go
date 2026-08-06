@@ -108,9 +108,11 @@ func (d *DeliberativeWorker) InterpretDeliberative(ctx context.Context, envelope
 		Budget:   "DELIBERATIVE",
 		CallerID: "Understanding.DeliberativeWorker",
 	}
+	fmt.Printf("DEBUG: InterpretDeliberative calling Execute with req: %+v\n", req)
 
 	res, err := d.inference.Execute(timeoutCtx, req)
 	if err != nil {
+		fmt.Printf("DEBUG: InterpretDeliberative Execute returned error: %v\n", err)
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, inference.ErrInferenceTimeout) {
 			return SemanticFrame{}, ErrInferenceTimeout
 		}

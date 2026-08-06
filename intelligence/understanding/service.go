@@ -367,6 +367,8 @@ func (s *Service) interpretInternal(ctx context.Context, perceptionEnv communica
 
 		if len(ambiguitySet) > 0 {
 			builder.WithStatus(StatusAmbiguousBeam)
+		} else if primary.Intent == "unresolved_intent" {
+			builder.WithStatus(StatusFailedImpasse)
 		} else if primary.CalibratedConfidence >= s.tau {
 			builder.WithStatus(StatusUnambiguous)
 		} else {
