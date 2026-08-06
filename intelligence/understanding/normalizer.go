@@ -10,6 +10,7 @@ import (
 // during normalization, ensuring the original utterance remains recoverable.
 type NormalizationProfile struct {
 	TyposCorrected map[string]string // Original typo -> Corrected form
+	ContractionsExpanded map[string]string // Original contraction -> Expanded form
 	FillersRemoved []string          // Conversational filler phrases removed
 	SynonymsSubstituted map[string]string // Original phrase -> Canonical synonym
 }
@@ -40,6 +41,7 @@ type Normalizer interface {
 
 // DefaultNormalizer is the canonical deterministic NLP normalizer.
 type DefaultNormalizer struct {
+	contractions map[string]string
 	typos   map[string]string
 	fillers []string
 	synonyms map[string][]string
@@ -48,6 +50,7 @@ type DefaultNormalizer struct {
 // NewDefaultNormalizer constructs a new DefaultNormalizer with the default registry.
 func NewDefaultNormalizer() *DefaultNormalizer {
 	return &DefaultNormalizer{
+		contractions: DefaultContractions,
 		typos:   DefaultTypos,
 		fillers: DefaultFillers,
 		synonyms: DefaultSynonyms,
@@ -57,6 +60,7 @@ func NewDefaultNormalizer() *DefaultNormalizer {
 // NewNormalizer constructs a Normalizer with custom typo and filler dictionaries.
 func NewNormalizer(typos map[string]string, fillers []string) *DefaultNormalizer {
 	return &DefaultNormalizer{
+		contractions: DefaultContractions,
 		typos:   typos,
 		fillers: fillers,
 		synonyms: DefaultSynonyms,
@@ -84,8 +88,22 @@ func (n *DefaultNormalizer) Normalize(rawText string) NormalizedText {
 	cleaned := sb.String()
 	profile := NormalizationProfile{
 		TyposCorrected: make(map[string]string),
+		ContractionsExpanded: make(map[string]string),
 		FillersRemoved: make([]string, 0),
 		SynonymsSubstituted: make(map[string]string),
+	}
+
+	// 0. Apply contraction expansion
+	if len(n.contractions) > 0 {
+		for contraction, expanded := range n.contractions {
+			re := regexp.MustCompile(`\b` + strings.ReplaceAll(contraction, `'`, `\'`) + `\b`)
+			if re.MatchString(cleaned) {
+				profile.ContractionsExpanded[contraction] = expanded
+				cleaned = re.ReplaceAllString(cleaned, expanded)
+			}
+		}
+		// Clean up any extra spaces left behind
+		cleaned = strings.Join(strings.Fields(cleaned), " ")
 	}
 
 	// 1. Apply typo correction

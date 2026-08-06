@@ -1,0 +1,1 @@
+{"requirement_id":"app-system-1","success":true,"realization":0,"response_type":"system","operation":"query_battery","data":{"Charging":true,"Percentage":100,"percentage":100,"status":"Charging"},"duration":0}

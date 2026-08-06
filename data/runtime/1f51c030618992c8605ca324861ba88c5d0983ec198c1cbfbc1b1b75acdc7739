@@ -1,0 +1,1 @@
+{"requirement_id":"app-weather-1","success":true,"realization":0,"response_type":"weather","operation":"query_weather","data":{"location":"mumbai","weather":{"Condition":"Light drizzle","FeelsLikeC":"33","FeelsLikeF":"91","Humidity":"78","TemperatureC":"28","TemperatureF":"83","VisibilityKm":"2","WindDirection":"WSW","WindSpeedKmph":"31"}},"duration":772399100}

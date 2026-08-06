@@ -1,0 +1,1 @@
+{"requirement_id":"app-weather-1","success":true,"realization":0,"response_type":"weather","operation":"query_weather","data":{"location":"Local","weather":{"Condition":"Sunny","FeelsLikeC":"16","FeelsLikeF":"61","Humidity":"53","TemperatureC":"19","TemperatureF":"66","VisibilityKm":"10","WindDirection":"NNW","WindSpeedKmph":"13"}},"duration":784812200}

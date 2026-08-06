@@ -66,13 +66,13 @@ YES
 ## Regression Summary
 
 Previous Health:
-0%
+100%
 
 Current Health:
 100%
 
 Improvement:
-+100%
+0%
 
 Fixed
 
@@ -106,12 +106,12 @@ All systems operational. No actions required.
 | today's date | PASS |  | "today's date     intent = query_date Today's da..." | PASS |
 | what is today's date | PASS |  | "what is today's date     intent = query_date To..." | PASS |
 | 2+2 | PASS |  | "2+2     operand2 = 2     operator = +     inten..." | PASS |
-| 55*7 | PASS |  | "55*7     operand2 = 7     operator = *     oper..." | PASS |
+| 55*7 | PASS |  | "55*7     operator = *     operand1 = 55     ope..." | PASS |
 | 100/4 | PASS |  | "100/4     operand1 = 100     operand2 = 4     o..." | PASS |
 | weather | PASS |  | "weather     intent = query_weather Weather in L..." | PASS |
 | weather in Hyderabad | PASS |  | "weather in Hyderabad     location = hyderabad  ..." | PASS |
-| create folder test | PASS |  | "create folder test     operation = set     dire..." | PASS |
-| delete folder test | PASS |  | "delete folder test     filename = folder test  ..." | PASS |
+| create folder test | PASS |  | "create folder test     intent = create_director..." | PASS |
+| delete folder test | PASS |  | "delete folder test     filename = test     oper..." | PASS |
 | create note shopping | PASS |  | "create note shopping     operation = set     ti..." | PASS |
 | read notes | PASS |  | "read notes     operation = read     intent = ma..." | PASS |
 | delete note shopping | PASS |  | "delete note shopping     operation = delete    ..." | PASS |
@@ -150,22 +150,3 @@ All systems operational. No actions required.
 
 **Structured Metadata**: Enabled
 
-
-
-## Filesystem Reality Audit (Sprint 3)
-
-The following native filesystem operations have been fully audited and verified against the real Windows OS.
-The runtime guarantees that these operations return truthful success/failure metrics driven entirely by the real OS result, and only semantic intent flows through the presentation layer.
-
-| Operation | Native OS Validation | Error Truthfulness | Semantic Purity |
-|---|---|---|---|
-| `Create` | ✅ Folder physically created | ✅ Honors OS rejection | ✅ Deterministic Presentation |
-| `Write` | ✅ File physically written | ✅ Honors read-only/missing paths | ✅ Deterministic Presentation |
-| `Read` | ✅ Reads physical content | ✅ Honors missing file errors | ✅ Deterministic Presentation |
-| `Move` | ✅ Real file move operation | ✅ Honors lock/permission errors | ✅ Deterministic Presentation |
-| `Copy` | ✅ Real file copy operation | ✅ Honors destination conflicts | ✅ Deterministic Presentation |
-| `Rename` | ✅ Real file rename operation | ✅ Honors OS-level conflicts | ✅ Deterministic Presentation |
-| `Delete` | ✅ File/folder physically deleted | ✅ Honors locked/non-empty dir | ✅ Deterministic Presentation |
-| `Exists` | ✅ Verifies physical existence | ✅ Accurate Boolean reporting | ✅ Deterministic Presentation |
-
-**Result**: PASS. The Files Capability (app-files-1) is certified Native-Backed and Semantically Pure.

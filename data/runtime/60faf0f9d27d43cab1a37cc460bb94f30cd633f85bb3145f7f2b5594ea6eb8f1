@@ -1,0 +1,1 @@
+{"requirement_id":"sys-time-1","success":true,"realization":0,"response_type":"time","operation":"query_time","data":{"CurrentTime":"2026-08-06T14:17:27.670222+05:30","Timezone":"Local"},"duration":0}

@@ -1,0 +1,1 @@
+{"requirement_id":"app-weather-1","success":true,"realization":0,"response_type":"weather","operation":"query_weather","data":{"location":"delhi","weather":{"Condition":"Patchy rain nearby","FeelsLikeC":"39","FeelsLikeF":"101","Humidity":"58","TemperatureC":"33","TemperatureF":"91","VisibilityKm":"10","WindDirection":"S","WindSpeedKmph":"4"}},"duration":779041200}
