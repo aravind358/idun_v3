@@ -1,0 +1,8 @@
+# import config
+packagefile context=C:\Users\ARAVIND\AppData\Local\go-build\c3\c340c460ce12a2858a611c5ce961880a76a6b5ce762150e85816d4bac48af41b-d
+packagefile fmt=C:\Users\ARAVIND\AppData\Local\go-build\1c\1c11d5782fa5fb7bdac6c210a900315b96d2c0ceeb8be03fb023babb6f3b209a-d
+packagefile idun/capabilities=C:\Projects\idun_v3\bin\go-build1749222220\b099\_pkg_.a
+packagefile idun/capabilities/applications/core=C:\Projects\idun_v3\bin\go-build1749222220\b212\_pkg_.a
+packagefile idun/capabilities/native/system=C:\Projects\idun_v3\bin\go-build1749222220\b218\_pkg_.a
+packagefile strings=C:\Users\ARAVIND\AppData\Local\go-build\9f\9f7b04b4922dd68106fd076d2cbabd3a5501f3a52cf0f4ed67ee200fe4c14497-d
+packagefile time=C:\Users\ARAVIND\AppData\Local\go-build\91\91e1d6fa1a93b102e6adbc1336142d80c6f15f37aec335bb8f000d57cf60d526-d

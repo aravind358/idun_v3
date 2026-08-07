@@ -38,7 +38,7 @@ func (m *mockCalibrator) Close() error { return nil }
 
 type mockMultiNeuralSpecialist struct{}
 
-func (m *mockMultiNeuralSpecialist) Evaluate(norm understanding.NormalizedText, boundSlots []understanding.Slot) ([]understanding.Hypothesis, error) {
+func (m *mockMultiNeuralSpecialist) Evaluate(norm understanding.NormalizedText) ([]understanding.Hypothesis, error) {
 	return []understanding.Hypothesis{
 		{Intent: "intent_a", CalibratedConfidence: 0.85, SourceLayer: understanding.LayerNeuralClassifier},
 		{Intent: "intent_b", CalibratedConfidence: 0.82, SourceLayer: understanding.LayerNeuralClassifier},
@@ -103,7 +103,7 @@ func TestDefaultNeuralSpecialist(t *testing.T) {
 	normalizer := understanding.NewDefaultNormalizer()
 
 	norm := normalizer.Normalize("Can we reschedule the meeting?")
-	hyps, err := neural.Evaluate(norm, nil)
+	hyps, err := neural.Evaluate(norm)
 	if err != nil {
 		t.Fatalf("Evaluate failed: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestBoundedBeamSelectionAndPruning(t *testing.T) {
 	multiNeural := &mockMultiNeuralSpecialist{}
 
 	ctx := context.Background()
-	primary, ambiguitySet, err := evaluator.EvaluateParallel(ctx, understanding.NormalizedText{}, nil, nil, multiNeural, nil)
+	primary, ambiguitySet, err := evaluator.EvaluateParallel(ctx, understanding.NormalizedText{}, nil, multiNeural, nil)
 	if err != nil {
 		t.Fatalf("EvaluateParallel failed: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestCalibrationIntegration(t *testing.T) {
 	normalizer := understanding.NewDefaultNormalizer()
 	norm := normalizer.Normalize("Can we reschedule the meeting?")
 
-	primary, _, err := evaluator.EvaluateParallel(context.Background(), norm, nil, nil, neural, calibrator)
+	primary, _, err := evaluator.EvaluateParallel(context.Background(), norm, nil, neural, calibrator)
 	if err != nil {
 		t.Fatalf("EvaluateParallel failed: %v", err)
 	}

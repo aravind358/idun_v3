@@ -1,0 +1,7 @@
+# import config
+packagefile os=C:\Users\ARAVIND\AppData\Local\go-build\a9\a9a44c0c922a1dd9b8d56d56b14c502bd4968a360df064f56177a296e4d72956-d
+packagefile reflect=C:\Users\ARAVIND\AppData\Local\go-build\9c\9cfe807ec8c6f04cfd5f8da47d1d4c66f667524f089e4328cc8397efdbad9c99-d
+packagefile testing=C:\Users\ARAVIND\AppData\Local\go-build\ca\cadca14b151aed0578cc0051aa2120f6392d5005acaf0d60b762e0a9442fc9bb-d
+packagefile testing/internal/testdeps=C:\Users\ARAVIND\AppData\Local\go-build\cd\cd19350e3fd6c51da522086bc15df74f1f80d00e6747459b4d6b23a78fe23bda-d
+packagefile runtime=C:\Users\ARAVIND\AppData\Local\go-build\a5\a5732d7241053a45da9037e0a2dd5914cf8f435a7f389fc8cdb15c3a3958a82c-d
+packagefile idun/intelligence/learning=C:\Projects\idun_v3\bin\go-build1749222220\b349\_pkg_.a

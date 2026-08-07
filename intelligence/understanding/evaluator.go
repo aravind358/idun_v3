@@ -32,7 +32,6 @@ func NewSpeculativeEvaluator(deltaThreshold float64) *SpeculativeEvaluator {
 func (e *SpeculativeEvaluator) EvaluateParallel(
 	ctx context.Context,
 	norm NormalizedText,
-	boundSlots []Slot,
 	grammar GrammarSpecialist,
 	neural NeuralSpecialist,
 	calibrator calibration.CalibrationService,
@@ -48,7 +47,7 @@ func (e *SpeculativeEvaluator) EvaluateParallel(
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if hyp, matched := grammar.Evaluate(norm, boundSlots); matched {
+			if hyp, matched := grammar.Evaluate(norm); matched {
 				mu.Lock()
 				candidates = append(candidates, hyp)
 				mu.Unlock()
@@ -61,7 +60,7 @@ func (e *SpeculativeEvaluator) EvaluateParallel(
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if hyps, err := neural.Evaluate(norm, boundSlots); err == nil {
+			if hyps, err := neural.Evaluate(norm); err == nil {
 				mu.Lock()
 				candidates = append(candidates, hyps...)
 				mu.Unlock()

@@ -1,0 +1,1 @@
+{"requirement_id":"app-weather-1","success":true,"realization":0,"response_type":"weather","operation":"query_weather","data":{"location":"hyderabad","weather":{"Condition":"Partly Cloudy ","FeelsLikeC":"31","FeelsLikeF":"87","Humidity":"59","TemperatureC":"29","TemperatureF":"84","VisibilityKm":"10","WindDirection":"W","WindSpeedKmph":"24"}},"duration":770908700}

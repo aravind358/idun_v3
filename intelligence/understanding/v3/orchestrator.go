@@ -24,6 +24,7 @@ type Orchestrator struct {
 	normalizers NormalizerRunner
 	composers   ComposerRunner
 	splitter    splitter.Splitter
+	spanDetector *TemporalSpanDetector
 }
 
 // ExtractorRunner coordinates semantic extraction from a hypothesis.
@@ -51,6 +52,7 @@ func NewOrchestrator(grammar, neural, deliberative Specialist, extractors Extrac
 		normalizers:  norms,
 		composers:    comps,
 		splitter:     spl,
+		spanDetector: NewTemporalSpanDetector(),
 	}
 }
 
@@ -58,8 +60,19 @@ func NewOrchestrator(grammar, neural, deliberative Specialist, extractors Extrac
 func (o *Orchestrator) Analyze(ctx context.Context, env *perception.PerceptionEnvelope) (*UnderstandingBatch, error) {
 	rawInput := env.RawInput()
 	
+	var maskedInput string
+	var spans []ProtectedSpan
+	if o.spanDetector != nil {
+		maskedInput, spans = o.spanDetector.MaskSpans(rawInput)
+	} else {
+		maskedInput = rawInput
+	}
+
 	// Split utterance into distinct goals
 	isValidGoal := func(chunk string) bool {
+		if o.spanDetector != nil {
+			chunk = o.spanDetector.RestoreSpans(chunk, spans)
+		}
 		// Create a temporary envelope for the chunk
 		chunkEnv, _ := perception.NewBuilder().
 			EnvelopeID(string(env.EnvelopeID())).
@@ -75,15 +88,19 @@ func (o *Orchestrator) Analyze(ctx context.Context, env *perception.PerceptionEn
 	
 	var chunks []string
 	if o.splitter != nil {
-		chunks = o.splitter.Split(rawInput, isValidGoal)
+		chunks = o.splitter.Split(maskedInput, isValidGoal)
 	} else {
-		chunks = []string{rawInput}
+		chunks = []string{maskedInput}
 	}
 	
 	totalGoals := len(chunks)
 	var interps []*SemanticInterpretation
 	
-	for i, chunk := range chunks {
+	for i, maskedChunk := range chunks {
+		chunk := maskedChunk
+		if o.spanDetector != nil {
+			chunk = o.spanDetector.RestoreSpans(maskedChunk, spans)
+		}
 		// Process each chunk
 		chunkEnv, _ := perception.NewBuilder().
 			EnvelopeID(string(env.EnvelopeID())).
@@ -114,11 +131,7 @@ func (o *Orchestrator) Analyze(ctx context.Context, env *perception.PerceptionEn
 		
 		var secondary []SecondaryIntent
 		
-		interp, _ := Synthesize(chunkEnv, primary, ambiguitySet, status, entities, refs, anchors, composed, secondary)
-		
-		// Inject lightweight metadata
-		interp.goalIndex = i + 1
-		interp.totalGoals = totalGoals
+		interp, _ := Synthesize(chunkEnv, primary, ambiguitySet, status, entities, refs, anchors, composed, secondary, i+1, totalGoals)
 		
 		interps = append(interps, interp)
 	}

@@ -25,6 +25,7 @@ import (
 	"idun/intelligence/calibration"
 	"idun/intelligence/communication"
 	"idun/intelligence/constitution"
+	intelcontext "idun/intelligence/context"
 	decisionv3 "idun/intelligence/decision/v3"
 	executivev3 "idun/intelligence/executive/v3"
 	"idun/intelligence/infrastructure/inference"
@@ -34,6 +35,7 @@ import (
 	"idun/intelligence/reasoning"
 	reasoningv3 "idun/intelligence/reasoning/v3"
 	"idun/intelligence/reflection"
+
 	underv3 "idun/intelligence/understanding/v3"
 	underext "idun/intelligence/understanding/v3/extractors"
 	undernorms "idun/intelligence/understanding/v3/normalizers"
@@ -114,6 +116,32 @@ func (a *routerWorkspaceSubAdapter) Subscribe(topic communication.TopicID, subsc
 
 func (a *routerWorkspaceSubAdapter) Publish(ctx context.Context, env communication.Envelope) error {
 	return a.ws.Publish(ctx, env)
+}
+
+type contextWorkspaceSubAdapter struct {
+	ws *workspace.Engine
+}
+
+func (a *contextWorkspaceSubAdapter) Subscribe(topic communication.TopicID, subscriberID string, handler func(ctx context.Context, env communication.Envelope) error) (intelcontext.WorkspaceSubscription, error) {
+	return a.ws.Subscribe(topic, subscriberID, handler)
+}
+
+type dummyDialogueStateReader struct{}
+
+func (d *dummyDialogueStateReader) GetRecentCandidates(role string, limit int) []string {
+	return nil
+}
+
+func (d *dummyDialogueStateReader) GetActiveGoals() []string {
+	return nil
+}
+
+func (d *dummyDialogueStateReader) GetPreviousBatch() *underv3.UnderstandingBatch {
+	return nil
+}
+
+func (d *dummyDialogueStateReader) GetTemporalAnchor() time.Time {
+	return time.Now()
 }
 
 type understandingWorkspaceSubAdapter struct {
@@ -221,6 +249,7 @@ type RuntimeHost struct {
 	attentionSvc *attention.Service
 	execV3Svc    *executivev3.WorkspaceBridge
 	underV3Svc   *underv3.WorkspaceBridge
+	contextSvc   *intelcontext.WorkspaceBridge
 	reasonV3Svc  *reasoningv3.WorkspaceBridge
 	planV3Svc    *planningv3.WorkspaceBridge
 	decisionV3Svc *decisionv3.WorkspaceBridge
@@ -559,7 +588,7 @@ func (h *RuntimeHost) Build() error {
 		// Build V3 Orchestrator
 		comps := undercomps.NewDeterministicTemporalComposer()
 
-		v3Orch := underv3.NewOrchestrator(grammar, neural, delib, exts, norms, comps, underspl.NewDeterministicSplitter())
+		v3Orch := underv3.NewOrchestrator(grammar, neural, delib, exts, norms, comps, underspl.NewDeterministicSplitter(nil))
 		
 		// Wrap with WorkspaceBridge
 		h.underV3Svc = underv3.NewWorkspaceBridge(
@@ -567,6 +596,21 @@ func (h *RuntimeHost) Build() error {
 			&payloadStorerAdapter{store: h.storageSvc}, 
 			&workspacePubAdapter{ws: h.workspaceSvc},
 			&understandingWorkspaceSubAdapter{ws: h.workspaceSvc}, 
+		)
+		
+		// Add Context Resolver immediately after Understanding
+		resolver := intelcontext.NewDefaultContextResolver()
+		
+		// TODO: Replace dummyDialogueStateReader with the real DialogueStateReader 
+		// once the Dialogue State Manager is implemented at the global level.
+		dummyState := &dummyDialogueStateReader{}
+		
+		h.contextSvc = intelcontext.NewWorkspaceBridge(
+			resolver,
+			dummyState,
+			&payloadStorerAdapter{store: h.storageSvc},
+			&workspacePubAdapter{ws: h.workspaceSvc},
+			&contextWorkspaceSubAdapter{ws: h.workspaceSvc},
 		)
 	}
 
@@ -805,6 +849,9 @@ func (h *RuntimeHost) Register() error {
 	// Phase 5: Cognitive
 	if h.underV3Svc != nil {
 		registerWrap("Intelligence.Understanding", kernel.PhaseCognitive, h.underV3Svc)
+	}
+	if h.contextSvc != nil {
+		registerWrap("Intelligence.ContextResolver", kernel.PhaseCognitive, h.contextSvc)
 	}
 	if h.reasonV3Svc != nil {
 		registerWrap("Intelligence.Reasoning", kernel.PhaseCognitive, h.reasonV3Svc)

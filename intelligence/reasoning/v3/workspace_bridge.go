@@ -59,7 +59,7 @@ func (b *WorkspaceBridge) Start() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.subscriber != nil && b.sub == nil {
-		sub, err := b.subscriber.Subscribe(communication.TopicUserIntent, b.name, b.HandleIntent)
+		sub, err := b.subscriber.Subscribe(communication.TopicResolvedIntent, b.name, b.HandleIntent)
 		if err != nil {
 			return err
 		}

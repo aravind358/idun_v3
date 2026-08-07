@@ -1088,3 +1088,44 @@ These items are therefore intentionally scheduled for Phase 5.x, where the proje
 ✅ **Runtime Acceptance Coverage**: Implemented. The test harness now dynamically tracks the universe of supported capabilities and reports total coverage percentage to prevent un-tested capabilities from being released.
 
 ✅ **Behavioral Validation Upgrade (Phase 5.2.x)**: Implemented. The Runtime Acceptance Test Harness was completely overhauled to validate user-facing behavior first and explicitly classify failing layers using structured metadata from the runtime.
+
+ # #   T e c h n i c a l   D e b t 
+ 
+ # # #   U 8 . 5      R a w   U s e r   I n p u t   P r e s e r v a t i o n 
+ * * S t a t u s : * *   D e f e r r e d 
+ 
+ * * D e s c r i p t i o n : * * 
+ C u r r e n t l y   t h e   U n d e r s t a n d i n g   l a y e r   p u b l i s h e s   o n l y   t h e   S e m a n t i c F r a m e . 
+ T h e   o r i g i n a l   r a w   u s e r   u t t e r a n c e   i s   d i s c a r d e d   b e f o r e   d o w n s t r e a m   c o g n i t i v e   s y s t e m s   r e c e i v e   i t . 
+ 
+ F u t u r e   r e a s o n i n g ,   k n o w l e d g e ,   i n t e r n e t ,   l e a r n i n g ,   a n d   c o n v e r s a t i o n a l   m e m o r y   s h o u l d   h a v e   a c c e s s   t o   b o t h : 
+ -   O r i g i n a l   r a w   u s e r   i n p u t 
+ -   S e m a n t i c F r a m e 
+ w i t h o u t   c h a n g i n g   t h e   d e t e r m i n i s t i c   U n d e r s t a n d i n g   p i p e l i n e . 
+ 
+ * * R e a s o n : * * 
+ F u t u r e   c o g n i t i v e   m o d u l e s   s h o u l d   r e a s o n   o v e r   n a t u r a l   l a n g u a g e ,   n o t   o n l y   n o r m a l i z e d   s e m a n t i c   r e p r e s e n t a t i o n s . 
+ 
+ # # #   N o r m a l i z e r   C o u p l i n g   A u d i t 
+ * * S t a t u s : * *   M i n o r   T e c h n i c a l   D e b t 
+ 
+ * * D e s c r i p t i o n : * * 
+ S o m e   g r a m m a r   r u l e s   c u r r e n t l y   d e p e n d   o n   n o r m a l i z a t i o n   b e h a v i o r   ( f o r   e x a m p l e   c o n v e r s a t i o n a l   f i l l e r   r e m o v a l ) . 
+ T h i s   i s   a c c e p t a b l e   f o r   U 6   a n d   s h o u l d   r e m a i n   u n c h a n g e d . 
+ R e v i e w   d u r i n g   f u t u r e   U n d e r s t a n d i n g   e v o l u t i o n   t o   r e d u c e   c o u p l i n g   w h e r e   p r a c t i c a l   w i t h o u t   c h a n g i n g   d e t e r m i n i s t i c   b e h a v i o r . 
+  
+ 
+ # #   P h a s e   U 7      C o n t e x t u a l   U n d e r s t a n d i n g 
+ 
+ -   [   ]   * * U 7 . 1   C o m p o n e n t   E x p a n s i o n * * :   A d d   t h e   c o n t e x t - s p e c i f i c   s e m a n t i c   f r a g m e n t s   ( C o n c e p t A n a p h o r a ,   C o n n e c t o r E l l i p s i s ,   C o n c e p t A f f i r m a t i o n ,   C o n c e p t N e g a t i o n )   t o   g r a m m a r _ c o m p o n e n t s . g o . 
+ -   [   ]   * * U 7 . 2   C o n t e x t   B u i l d e r s * * :   I n t r o d u c e   a   n e w   B u i l d C o n t e x t R u l e   f u n c t i o n   i n   g r a m m a r _ b u i l d e r s . g o   s p e c i f i c a l l y   d e s i g n e d   f o r   e l l i p t i c a l   s t r u c t u r e s . 
+ -   [   ]   * * U 7 . 3   C o n t e x t   D o m a i n   L o a d e r * * :   C r e a t e   g r a m m a r _ c o n t e x t . g o   t o   h o u s e   t h e   n e w   r u l e . c o n t e x t . *   d e f i n i t i o n s . 
+ -   [   ]   * * U 7 . 4   C o n t e x t   B i n d e r   R e f a c t o r i n g * * :   D e p r e c a t e   t h e   n a i v e   p r o n o u n   b i n d i n g   i n   D e f a u l t R e f e r e n t B i n d e r   i n   f a v o r   o f   r e l y i n g   o n   t h e   G r a m m a r   S p e c i a l i s t   e x t r a c t i n g   t h e   p r o n o u n   a s   a   n a t i v e   s l o t   ( S l o t A n a p h o r a ) . 
+ -   [   ]   * * U 7 . 5   C e r t i f i c a t i o n * * :   E x p a n d   e v a l _ p h r a s e s . g o   t o   t e s t   c o n v e r s a t i o n a l   f o l l o w - u p s   a n d   e n s u r e   n o   r e g r e s s i o n s   o n   t h e   1 1 5   b a s e l i n e   p h r a s e s . 
+  
+ 
+ -   [   ]   * * M i n o r   I m p r o v e m e n t :   I n t e r f a c e   S e g r e g a t i o n   f o r   S t a t e * * :   R e p l a c e   t h e   m o n o l i t h i c   D i a l o g u e S t a t e   c o n c e p t   w i t h   i s o l a t e d   i n t e r f a c e s   ( M e m o r y R e a d e r ,   A c t i v e G o a l R e a d e r ,   e t c . )   f o r   C o n t e x t   R e s o l v e r   d e p e n d e n c i e s . 
+ -   [   ]   * * M i n o r   I m p r o v e m e n t :   T e m p o r a l   A n c h o r i n g * * :   T r a c k   t e m p o r a l   r e s o l u t i o n   ( " n o w " )   a s   a   f o r m a l   c o n t e x t u a l   r e s p o n s i b i l i t y   i n   t h e   R e s o l v e r   i n s t e a d   o f   a d - h o c   r e s o l u t i o n . 
+ -   [   ]   * * M i n o r   I m p r o v e m e n t :   C r o s s - D o m a i n   C l a s h   H a n d l i n g * * :   I m p l e m e n t   e x p l i c i t   c o n f l i c t   r e s o l u t i o n   l o g i c   f o r   a m b i g u o u s   p r o n o u n s   ( e . g .   i f   " d e l e t e   i t "   c o u l d   r e f e r   t o   a   F i l e   o r   a n   A l a r m ) . 
+  
+ 

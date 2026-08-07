@@ -18,6 +18,43 @@ func NewBuilder() *Builder {
 	}
 }
 
+// CloneBuilder creates a Builder initialized with a deep copy of an existing interpretation.
+func CloneBuilder(orig *SemanticInterpretation) *Builder {
+	// Deep copy slices to ensure mutation safety
+	clone := *orig
+	
+	clone.topics = make([]string, len(orig.topics))
+	copy(clone.topics, orig.topics)
+	
+	clone.entities = make([]Entity, len(orig.entities))
+	copy(clone.entities, orig.entities)
+	
+	clone.references = make([]Reference, len(orig.references))
+	copy(clone.references, orig.references)
+	
+	clone.temporalAnchors = make([]TemporalAnchor, len(orig.temporalAnchors))
+	copy(clone.temporalAnchors, orig.temporalAnchors)
+	
+	clone.composedTimestamps = make([]string, len(orig.composedTimestamps))
+	copy(clone.composedTimestamps, orig.composedTimestamps)
+	
+	clone.openSlots = make([]string, len(orig.openSlots))
+	copy(clone.openSlots, orig.openSlots)
+	
+	clone.secondaryIntents = make([]SecondaryIntent, len(orig.secondaryIntents))
+	copy(clone.secondaryIntents, orig.secondaryIntents)
+	
+	clone.assumptions = make([]Assumption, len(orig.assumptions))
+	copy(clone.assumptions, orig.assumptions)
+	
+	clone.ambiguities = make([]Ambiguity, len(orig.ambiguities))
+	copy(clone.ambiguities, orig.ambiguities)
+
+	return &Builder{
+		obj: &clone,
+	}
+}
+
 func (b *Builder) ArtifactID(id foundation.ArtifactID) *Builder {
 	b.obj.artifactID = id
 	return b
@@ -60,6 +97,10 @@ func (b *Builder) Topics(t []string) *Builder {
 }
 func (b *Builder) Entities(e []Entity) *Builder {
 	b.obj.entities = e
+	return b
+}
+func (b *Builder) Slots(s []Slot) *Builder {
+	b.obj.primaryHypothesis.slots = s
 	return b
 }
 func (b *Builder) References(r []Reference) *Builder {
@@ -141,6 +182,14 @@ func (b *Builder) Ambiguities(a []Ambiguity) *Builder {
 
 func (b *Builder) Confidence(c float64) *Builder {
 	b.obj.confidence = c
+	return b
+}
+func (b *Builder) GoalIndex(g int) *Builder {
+	b.obj.goalIndex = g
+	return b
+}
+func (b *Builder) TotalGoals(t int) *Builder {
+	b.obj.totalGoals = t
 	return b
 }
 

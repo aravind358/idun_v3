@@ -43,6 +43,8 @@ func (b *UnderstandingBatch) EnvelopeID() foundation.EnvelopeID         { return
 func (b *UnderstandingBatch) OriginalUtterance() string { return b.originalUtterance }
 
 // Interpretations returns the ordered slice of semantic interpretations.
+// The chronological order of split intents is strictly preserved to allow
+// downstream subsystems (e.g. Context Resolver) to resolve sequential dependencies.
 func (b *UnderstandingBatch) Interpretations() []*SemanticInterpretation {
 	result := make([]*SemanticInterpretation, len(b.interpretations))
 	copy(result, b.interpretations)

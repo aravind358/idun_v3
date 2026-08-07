@@ -75,6 +75,10 @@ func main() {
 	// Subscribe to all relevant topics
 	ws.Subscribe(communication.TopicUserIntent, "trace", func(ctx context.Context, env communication.Envelope) error {
 		printPayload(communication.TopicUserIntent, env)
+		return nil
+	})
+	ws.Subscribe(communication.TopicResolvedIntent, "trace", func(ctx context.Context, env communication.Envelope) error {
+		printPayload(communication.TopicResolvedIntent, env)
 		close(doneCh) // Signal completion for Understanding audit
 		return nil
 	})

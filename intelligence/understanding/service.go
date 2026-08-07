@@ -20,7 +20,6 @@ type Service struct {
 	mu           sync.RWMutex
 	cfg          Config
 	normalizer   Normalizer
-	binder       ReferentBinder
 	grammar      GrammarSpecialist
 	neural       NeuralSpecialist
 	calibrator   calibration.CalibrationService
@@ -42,15 +41,6 @@ func WithNormalizer(n Normalizer) ServiceOption {
 	return func(s *Service) {
 		if n != nil {
 			s.normalizer = n
-		}
-	}
-}
-
-// WithReferentBinder overrides the default referent binder.
-func WithReferentBinder(b ReferentBinder) ServiceOption {
-	return func(s *Service) {
-		if b != nil {
-			s.binder = b
 		}
 	}
 }
@@ -113,7 +103,6 @@ func NewService(cfg Config, ws workspace.Workspace, opts ...ServiceOption) *Serv
 	s := &Service{
 		cfg:        cfg,
 		normalizer: NewDefaultNormalizer(),
-		binder:     NewDefaultReferentBinder(),
 		grammar:    NewDefaultGrammarSpecialist(),
 		neural:     NewDefaultNeuralSpecialist(),
 		evaluator:  NewSpeculativeEvaluator(DefaultAmbiguityDelta),
@@ -220,17 +209,12 @@ func (s *Service) handlePerceptionEnvelope(ctx context.Context, env communicatio
 // InterpretEnvelope interprets raw perceptual input deterministically and speculatively,
 // escalating to deliberative LLM parsing only when local specialists fall below tau.
 func (s *Service) InterpretEnvelope(ctx context.Context, perceptionEnv communication.Envelope) (SemanticFrame, error) {
-	return s.interpretInternal(ctx, perceptionEnv, "", nil)
+	return s.interpretInternal(ctx, perceptionEnv, "")
 }
 
 // InterpretWithPrior interprets input conditioned on a top-down dialogue expectation prior.
 func (s *Service) InterpretWithPrior(ctx context.Context, perceptionEnv communication.Envelope, prior string) (SemanticFrame, error) {
-	return s.interpretInternal(ctx, perceptionEnv, prior, nil)
-}
-
-// InterpretWithCandidates interprets input with explicitly supplied referent candidates.
-func (s *Service) InterpretWithCandidates(ctx context.Context, perceptionEnv communication.Envelope, prior string, candidates []ReferentCandidate) (SemanticFrame, error) {
-	return s.interpretInternal(ctx, perceptionEnv, prior, candidates)
+	return s.interpretInternal(ctx, perceptionEnv, prior)
 }
 
 // ParseIntent implements the executive.UnderstandingAbility contract.
@@ -274,7 +258,7 @@ func (s *Service) ExecuteTask(ctx context.Context, workflowID, nodeID string, bu
 	return executive.StatusUnsureAmbiguous, string(bytes), nil
 }
 
-func (s *Service) interpretInternal(ctx context.Context, perceptionEnv communication.Envelope, prior string, candidates []ReferentCandidate) (SemanticFrame, error) {
+func (s *Service) interpretInternal(ctx context.Context, perceptionEnv communication.Envelope, prior string) (SemanticFrame, error) {
 	startTime := time.Now()
 
 	s.mu.RLock()
@@ -295,9 +279,8 @@ func (s *Service) interpretInternal(ctx context.Context, perceptionEnv communica
 	}
 
 	norm := s.normalizer.Normalize(rawText)
-	boundSlots := s.binder.BindReferents(norm, candidates)
 
-	primary, ambiguitySet, err := s.evaluator.EvaluateParallel(ctx, norm, boundSlots, s.grammar, s.neural, s.calibrator)
+	primary, ambiguitySet, err := s.evaluator.EvaluateParallel(ctx, norm, s.grammar, s.neural, s.calibrator)
 	if err != nil {
 		return SemanticFrame{}, err
 	}
@@ -413,7 +396,7 @@ func (s *Service) interpretInternal(ctx context.Context, perceptionEnv communica
 		builder.WithConfidenceTrace([]string{fmt.Sprintf("Base %s Score: %.2f", primary.SourceLayer, primary.CalibratedConfidence)})
 	} else {
 		builder.WithStatus(StatusFailedImpasse).
-			WithPrimaryHypothesis("unresolved_intent", 0.0, LayerReflexiveGrammar, boundSlots...)
+			WithPrimaryHypothesis("unresolved_intent", 0.0, LayerReflexiveGrammar)
 	}
 
 	durationUs := time.Since(startTime).Microseconds()

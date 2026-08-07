@@ -23,7 +23,7 @@ func BenchmarkGrammarSpecialist(b *testing.B) {
 	norm := understanding.NewDefaultNormalizer().Normalize("set alarm for 07:00")
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = grammar.Evaluate(norm, nil)
+		_, _ = grammar.Evaluate(norm)
 	}
 }
 
@@ -32,7 +32,7 @@ func BenchmarkNeuralSpecialist(b *testing.B) {
 	norm := understanding.NewDefaultNormalizer().Normalize("can we move the meeting to next week?")
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = neural.Evaluate(norm, nil)
+		_, _ = neural.Evaluate(norm)
 	}
 }
 
@@ -71,7 +71,7 @@ func BenchmarkSpeculativeEvaluator(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _, _ = evaluator.EvaluateParallel(ctx, norm, nil, grammar, neural, nil)
+		_, _, _ = evaluator.EvaluateParallel(ctx, norm, grammar, neural, nil)
 	}
 }
 

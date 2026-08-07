@@ -112,13 +112,13 @@ func main() {
 
 	for _, input := range inputs {
 		norm := understanding.NormalizedText{Cleaned: input}
-		hyp, matched := g.Evaluate(norm, nil)
+		hyp, ok := g.Evaluate(norm)
 		
 		status := "FAIL"
 		intent := "N/A"
 		slotsStr := "None"
 		
-		if matched {
+		if ok {
 			status = "PASS"
 			intent = hyp.Intent
 			var slots []string

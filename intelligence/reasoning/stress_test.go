@@ -60,7 +60,7 @@ func TestService_StressStormsAndConcurrentLifecycle(t *testing.T) {
 			env := communication.Envelope{
 				ID:            fmt.Sprintf("stress-env-%d", idx),
 				Source:        "stress.test",
-				Topic:         communication.TopicUserIntent,
+				Topic:         communication.TopicResolvedIntent,
 				RawConfidence: 0.85,
 			}
 

@@ -102,7 +102,7 @@ func TestDefaultNormalizer(t *testing.T) {
 	normalizer := understanding.NewDefaultNormalizer()
 	norm := normalizer.Normalize("   Set   ALARM   for  07:00!  Call her today. ")
 
-	expectedCleaned := "set alarm for 07:00! call her today."
+	expectedCleaned := "set alarm for 07:00 call her today"
 	if norm.Cleaned != expectedCleaned {
 		t.Fatalf("expected cleaned %q, got %q", expectedCleaned, norm.Cleaned)
 	}
@@ -111,24 +111,7 @@ func TestDefaultNormalizer(t *testing.T) {
 	}
 }
 
-func TestDefaultReferentBinder(t *testing.T) {
-	normalizer := understanding.NewDefaultNormalizer()
-	binder := understanding.NewDefaultReferentBinder()
 
-	candidates := []understanding.ReferentCandidate{
-		{ID: "person-alex", Name: "Alex", Role: "Friend"},
-	}
-
-	norm := normalizer.Normalize("Tell her I will be late")
-	slots := binder.BindReferents(norm, candidates)
-
-	if len(slots) == 0 {
-		t.Fatalf("expected pronominal slot bound to person-alex")
-	}
-	if slots[0].GroundingID != "person-alex" || slots[0].Value != "her" {
-		t.Fatalf("unexpected bound slot: %+v", slots[0])
-	}
-}
 
 func TestDefaultGrammarSpecialist(t *testing.T) {
 	grammar := understanding.NewDefaultGrammarSpecialist()
@@ -136,31 +119,31 @@ func TestDefaultGrammarSpecialist(t *testing.T) {
 
 	// 1. Exact match
 	normStatus := normalizer.Normalize("  STATUS ")
-	hyp, matched := grammar.Evaluate(normStatus, nil)
+	hyp, matched := grammar.Evaluate(normStatus)
 	if !matched || hyp.Intent != "query_status" {
 		t.Fatalf("expected query_status match, got matched=%v, intent=%s", matched, hyp.Intent)
 	}
 
 	// 2. Prefix match with slot
 	normAlarm := normalizer.Normalize("Set alarm for 07:30 AM")
-	hypAlarm, matchedAlarm := grammar.Evaluate(normAlarm, nil)
+	hypAlarm, matchedAlarm := grammar.Evaluate(normAlarm)
 	if !matchedAlarm || hypAlarm.Intent != "set_alarm" {
 		t.Fatalf("expected set_alarm match, got %v", matchedAlarm)
 	}
-	if len(hypAlarm.Slots) != 1 || hypAlarm.Slots[0].Name != "time" || hypAlarm.Slots[0].Value != "07:30 am" {
+	if len(hypAlarm.Slots) != 2 || hypAlarm.Slots[0].Name != "operation" || hypAlarm.Slots[1].Name != "Time_Slot" || hypAlarm.Slots[1].Value != "07:30 am" {
 		t.Fatalf("unexpected slots: %+v", hypAlarm.Slots)
 	}
 
 	// 3. query_time match
 	normTime := normalizer.Normalize("What time is it")
-	hypTime, matchedTime := grammar.Evaluate(normTime, nil)
+	hypTime, matchedTime := grammar.Evaluate(normTime)
 	if !matchedTime || hypTime.Intent != "query_time" {
 		t.Fatalf("expected query_time match, got matched=%v, intent=%s", matchedTime, hypTime.Intent)
 	}
 
 	// 4. query_date match
 	normDate := normalizer.Normalize("What's today's date")
-	hypDate, matchedDate := grammar.Evaluate(normDate, nil)
+	hypDate, matchedDate := grammar.Evaluate(normDate)
 	if !matchedDate || hypDate.Intent != "query_date" {
 		t.Fatalf("expected query_date match, got matched=%v, intent=%s", matchedDate, hypDate.Intent)
 	}

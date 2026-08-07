@@ -18,6 +18,8 @@ func Synthesize(
 	anchors []TemporalAnchor,
 	composed []string,
 	secondary []SecondaryIntent,
+	goalIndex int,
+	totalGoals int,
 ) (*SemanticInterpretation, error) {
 	
 	// Create a new cognitive artifact ID
@@ -40,7 +42,9 @@ func Synthesize(
 		References(refs).
 		TemporalAnchors(anchors).
 		ComposedTimestamps(composed).
-		SecondaryIntents(secondary)
+		SecondaryIntents(secondary).
+		GoalIndex(goalIndex).
+		TotalGoals(totalGoals)
 
 	if status == StatusFailed {
 		builder.PrimaryIntent("unresolved_intent")

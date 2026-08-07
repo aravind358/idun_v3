@@ -126,7 +126,7 @@ func (o *Orchestrator) Reason(ctx context.Context, interpretation *understanding
 		// The specialist uses the envelope's PayloadRef to retrieve raw perception data.
 		synthEnv := communication.Envelope{
 			ID:         string(interpretation.ArtifactID()),
-			Topic:      communication.TopicUserIntent,
+			Topic:      communication.TopicResolvedIntent,
 			CreatedAt:  time.Now().UTC(),
 			PayloadRef: "Analyze ambiguous intent: " + interpretation.PrimaryIntent(),
 		}

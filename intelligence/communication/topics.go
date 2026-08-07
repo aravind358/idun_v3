@@ -18,6 +18,9 @@ const (
 	// TopicUserIntent carries interpreted human intent representations.
 	TopicUserIntent TopicID = "user-intent"
 
+	// TopicResolvedIntent carries resolved and contextually grounded user intents.
+	TopicResolvedIntent TopicID = "resolved-intent"
+
 	// TopicActiveGoals carries active goal headers and decomposed target states.
 	TopicActiveGoals TopicID = "active-goals"
 
@@ -45,6 +48,7 @@ func (t TopicID) IsValid() bool {
 	switch t {
 	case TopicPerception,
 		TopicUserIntent,
+		TopicResolvedIntent,
 		TopicActiveGoals,
 		TopicCandidatePlans,
 		TopicEvaluatedOptions,
@@ -63,6 +67,7 @@ func AllTopics() []TopicID {
 	return []TopicID{
 		TopicPerception,
 		TopicUserIntent,
+		TopicResolvedIntent,
 		TopicActiveGoals,
 		TopicCandidatePlans,
 		TopicEvaluatedOptions,

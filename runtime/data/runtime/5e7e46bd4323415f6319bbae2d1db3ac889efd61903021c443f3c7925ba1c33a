@@ -1,0 +1,1 @@
+{"requirement_id":"app-system-1","success":true,"realization":0,"response_type":"system","operation":"query_memory","data":{"Avail":"2.9 GB","Load":80,"Total":"15.4 GB","Used":"12.4 GB"},"duration":0}

@@ -73,6 +73,10 @@ func TestTraceAudit(t *testing.T) {
 			printPayload(communication.TopicUserIntent, env)
 			return nil
 		})
+		ws.Subscribe(communication.TopicResolvedIntent, "trace", func(ctx context.Context, env communication.Envelope) error {
+			printPayload(communication.TopicResolvedIntent, env)
+			return nil
+		})
 		ws.Subscribe(communication.TopicActiveGoals, "trace", func(ctx context.Context, env communication.Envelope) error {
 			printPayload(communication.TopicActiveGoals, env)
 			return nil

@@ -79,7 +79,7 @@ func TestService_ReasonEnvelopeWithWorkspaceAndMemory(t *testing.T) {
 		DefaultConfig(),
 		ws,
 		mem,
-		WithTopics(communication.TopicUserIntent, communication.TopicActiveGoals),
+		WithTopics(communication.TopicResolvedIntent, communication.TopicActiveGoals),
 	)
 	if err := srv.Start(); err != nil {
 		t.Fatalf("failed to start service: %v", err)
@@ -89,7 +89,7 @@ func TestService_ReasonEnvelopeWithWorkspaceAndMemory(t *testing.T) {
 	env := communication.Envelope{
 		ID:            "env-test-reason",
 		Source:        "understanding",
-		Topic:         communication.TopicUserIntent,
+		Topic:         communication.TopicResolvedIntent,
 		PayloadRef:    "storage://frame/123",
 		RawConfidence: 0.92,
 	}

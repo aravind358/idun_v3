@@ -11,8 +11,8 @@ import (
 
 func TestTopicValidation(t *testing.T) {
 	validTopics := communication.AllTopics()
-	if len(validTopics) != 9 {
-		t.Fatalf("expected 9 canonical topics, got %d", len(validTopics))
+	if len(validTopics) != 10 {
+		t.Fatalf("expected 10 canonical topics, got %d", len(validTopics))
 	}
 	for _, topic := range validTopics {
 		if !topic.IsValid() {

@@ -8,7 +8,7 @@ import (
 // NeuralSpecialist defines the abstraction for local probabilistic neural classification,
 // slot prediction, and hypothesis generation without external AI models or network calls.
 type NeuralSpecialist interface {
-	Evaluate(norm NormalizedText, boundSlots []Slot) ([]Hypothesis, error)
+	Evaluate(norm NormalizedText) ([]Hypothesis, error)
 }
 
 // PatternClassifierRule represents a probabilistic classification pattern for the local neural specialist.
@@ -85,7 +85,7 @@ func (n *DefaultNeuralSpecialist) RegisterPattern(rule PatternClassifierRule) {
 }
 
 // Evaluate concurrently evaluates probabilistic hypotheses against the input utterance.
-func (n *DefaultNeuralSpecialist) Evaluate(norm NormalizedText, boundSlots []Slot) ([]Hypothesis, error) {
+func (n *DefaultNeuralSpecialist) Evaluate(norm NormalizedText) ([]Hypothesis, error) {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 
@@ -105,8 +105,7 @@ func (n *DefaultNeuralSpecialist) Evaluate(norm NormalizedText, boundSlots []Slo
 				conf = 0.98
 			}
 
-			slots := make([]Slot, len(boundSlots))
-			copy(slots, boundSlots)
+			var slots []Slot
 
 			hyps = append(hyps, Hypothesis{
 				Intent:               pat.Intent,

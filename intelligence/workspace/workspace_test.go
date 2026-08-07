@@ -115,8 +115,8 @@ func TestSubscribeAllAndUnsubscribe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SubscribeAll failed: %v", err)
 	}
-	if len(subs) != 9 {
-		t.Fatalf("expected 9 subscriptions from SubscribeAll, got %d", len(subs))
+	if len(subs) != 10 {
+		t.Fatalf("expected 10 subscriptions from SubscribeAll, got %d", len(subs))
 	}
 
 	ctx := context.Background()

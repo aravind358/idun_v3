@@ -1,0 +1,1 @@
+{"requirement_id":"app-weather-1","success":true,"realization":0,"response_type":"weather","operation":"query_weather","data":{"location":"hdyederabad","weather":{"Error":"No weather data retrieved"}},"duration":557133100}

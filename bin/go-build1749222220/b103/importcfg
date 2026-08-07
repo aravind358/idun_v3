@@ -1,0 +1,6 @@
+# import config
+packagefile crypto/rand=C:\Users\ARAVIND\AppData\Local\go-build\09\09de9a7872bbed919b849c3e7a12685f246e0fcbe708a6ece709835913270379-d
+packagefile encoding/hex=C:\Users\ARAVIND\AppData\Local\go-build\f9\f9e59c691fd0d5736afa5d72041e1619ea69f8d115f241c1b618b05425afb59b-d
+packagefile errors=C:\Users\ARAVIND\AppData\Local\go-build\b9\b9c753b360cfd5931b8a1f9ce14cd677cacb00c945669b51bcf59fb10b57be0b-d
+packagefile fmt=C:\Users\ARAVIND\AppData\Local\go-build\1c\1c11d5782fa5fb7bdac6c210a900315b96d2c0ceeb8be03fb023babb6f3b209a-d
+packagefile time=C:\Users\ARAVIND\AppData\Local\go-build\91\91e1d6fa1a93b102e6adbc1336142d80c6f15f37aec335bb8f000d57cf60d526-d

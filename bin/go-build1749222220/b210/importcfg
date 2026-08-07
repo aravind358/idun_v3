@@ -1,0 +1,9 @@
+# import config
+packagefile idun/capabilities=C:\Projects\idun_v3\bin\go-build1749222220\b099\_pkg_.a
+packagefile idun/capabilities/applications/calculator=C:\Projects\idun_v3\bin\go-build1749222220\b211\_pkg_.a
+packagefile idun/capabilities/applications/core=C:\Projects\idun_v3\bin\go-build1749222220\b212\_pkg_.a
+packagefile idun/capabilities/applications/files=C:\Projects\idun_v3\bin\go-build1749222220\b213\_pkg_.a
+packagefile idun/capabilities/applications/notes=C:\Projects\idun_v3\bin\go-build1749222220\b215\_pkg_.a
+packagefile idun/capabilities/applications/reminder=C:\Projects\idun_v3\bin\go-build1749222220\b216\_pkg_.a
+packagefile idun/capabilities/applications/system=C:\Projects\idun_v3\bin\go-build1749222220\b217\_pkg_.a
+packagefile idun/capabilities/applications/weather=C:\Projects\idun_v3\bin\go-build1749222220\b220\_pkg_.a

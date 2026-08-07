@@ -25,7 +25,8 @@ func main() {
 	norms := undernorms.NewDeterministicNormalizers(tempNorm)
 	comps := undercomps.NewDeterministicTemporalComposer()
 	
-	orch := underv3.NewOrchestrator(v3Grammar, nil, nil, exts, norms, comps, underspl.NewDeterministicSplitter())
+	splitter := underspl.NewDeterministicSplitter(nil)
+	orch := underv3.NewOrchestrator(v3Grammar, nil, nil, exts, norms, comps, splitter)
 
 	corpus := []string{
 		"Take a note to buy milk.",

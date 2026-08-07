@@ -165,7 +165,7 @@ func NewService(cfg Config, ws workspace.Workspace, mem MemoryProvider, opts ...
 		delibSpec:        NewDeliberativeSpecialist(nil),
 		constSpec:        NewConstitutionSpecialist(nil),
 		telemetry:        &telemetryCollector{},
-		subTopic:         communication.TopicUserIntent,
+		subTopic:         communication.TopicResolvedIntent,
 		pubTopic:         communication.TopicActiveGoals,
 	}
 	for _, opt := range opts {
@@ -252,7 +252,7 @@ func (s *Service) ExecuteTask(ctx context.Context, payloadRef string) (executive
 	env := communication.Envelope{
 		ID:              fmt.Sprintf("exec-task-%d", time.Now().UnixNano()),
 		Source:          "executive",
-		Topic:           communication.TopicUserIntent,
+		Topic:           communication.TopicResolvedIntent,
 		PayloadRef:      payloadRef,
 		PayloadModality: "structured-frame",
 		RawConfidence:   1.0,
@@ -278,7 +278,7 @@ func (s *Service) SynthesizeInference(ctx context.Context, premisesRef string) (
 	env := communication.Envelope{
 		ID:              fmt.Sprintf("synth-inf-%d", time.Now().UnixNano()),
 		Source:          "executive.reasoning",
-		Topic:           communication.TopicUserIntent,
+		Topic:           communication.TopicResolvedIntent,
 		PayloadRef:      premisesRef,
 		PayloadModality: "structured-frame",
 		RawConfidence:   0.90,
@@ -683,7 +683,7 @@ func (s *Service) ReasonEnvelope(ctx context.Context, perceptionEnv communicatio
 }
 
 func (s *Service) handleEnvelope(ctx context.Context, env communication.Envelope) error {
-	devLog("Reasoning", "Received TopicUserIntent")
+	devLog("Reasoning", "Received TopicResolvedIntent")
 	_, err := s.ReasonEnvelope(ctx, env, StrategySpec{})
 	return err
 }

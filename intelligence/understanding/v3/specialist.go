@@ -32,7 +32,7 @@ func NewDefaultGrammarSpecialist() Specialist {
 
 func (a *LegacyGrammarAdapter) Analyze(ctx context.Context, env *perception.PerceptionEnvelope) ([]Hypothesis, error) {
 	norm := a.normalizer.Normalize(env.RawInput())
-	v1Hyp, matched := a.v1.Evaluate(norm, nil)
+	v1Hyp, matched := a.v1.Evaluate(norm)
 	if !matched {
 		return []Hypothesis{}, nil
 	}
@@ -55,7 +55,7 @@ func NewDefaultNeuralSpecialist() Specialist {
 
 func (a *LegacyNeuralAdapter) Analyze(ctx context.Context, env *perception.PerceptionEnvelope) ([]Hypothesis, error) {
 	norm := a.normalizer.Normalize(env.RawInput())
-	v1Hyps, err := a.v1.Evaluate(norm, nil)
+	v1Hyps, err := a.v1.Evaluate(norm)
 	return convertHyps(v1Hyps), err
 }
 

@@ -13,6 +13,7 @@ type NormalizationProfile struct {
 	ContractionsExpanded map[string]string // Original contraction -> Expanded form
 	FillersRemoved []string          // Conversational filler phrases removed
 	SynonymsSubstituted map[string]string // Original phrase -> Canonical synonym
+	EntitiesNormalized  map[string]string // Original alias -> Canonical entity
 }
 
 // NormalizedText holds the cleaned, tokenized representation of a perception utterance.
@@ -45,6 +46,7 @@ type DefaultNormalizer struct {
 	typos   map[string]string
 	fillers []string
 	synonyms map[string][]string
+	entities map[string][]string
 }
 
 // NewDefaultNormalizer constructs a new DefaultNormalizer with the default registry.
@@ -54,6 +56,7 @@ func NewDefaultNormalizer() *DefaultNormalizer {
 		typos:   DefaultTypos,
 		fillers: DefaultFillers,
 		synonyms: DefaultSynonyms,
+		entities: DefaultEntities,
 	}
 }
 
@@ -64,33 +67,22 @@ func NewNormalizer(typos map[string]string, fillers []string) *DefaultNormalizer
 		typos:   typos,
 		fillers: fillers,
 		synonyms: DefaultSynonyms,
+		entities: DefaultEntities,
 	}
 }
 
 // Normalize cleans text, corrects typos, strips filler words, tokenizes, and detects pronominal anchors.
 func (n *DefaultNormalizer) Normalize(rawText string) NormalizedText {
-	trimmed := strings.TrimSpace(rawText)
-	var sb strings.Builder
-	var lastWasSpace bool
-
-	for _, r := range trimmed {
-		if unicode.IsSpace(r) {
-			if !lastWasSpace {
-				sb.WriteRune(' ')
-				lastWasSpace = true
-			}
-		} else {
-			sb.WriteRune(unicode.ToLower(r))
-			lastWasSpace = false
-		}
-	}
-
-	cleaned := sb.String()
+	// 1. Whitespace Cleanup & Lowercase
+	// strings.Fields perfectly handles all unicode whitespace (tabs, newlines, multiple spaces)
+	// and strips leading/trailing spaces automatically.
+	cleaned := strings.ToLower(strings.Join(strings.Fields(rawText), " "))
 	profile := NormalizationProfile{
 		TyposCorrected: make(map[string]string),
 		ContractionsExpanded: make(map[string]string),
 		FillersRemoved: make([]string, 0),
 		SynonymsSubstituted: make(map[string]string),
+		EntitiesNormalized: make(map[string]string),
 	}
 
 	// 0. Apply contraction expansion
@@ -118,6 +110,14 @@ func (n *DefaultNormalizer) Normalize(rawText string) NormalizedText {
 		cleaned = strings.Join(tokens, " ")
 	}
 
+	// 1.5. Apply Punctuation Normalization
+	// Replace ? ! . with spaces, then collapse spaces
+	rePunct := regexp.MustCompile(`[?.!]+`)
+	if rePunct.MatchString(cleaned) {
+		cleaned = rePunct.ReplaceAllString(cleaned, " ")
+		cleaned = strings.Join(strings.Fields(cleaned), " ")
+	}
+
 	// 2. Apply filler stripping
 	// Iterate through fillers and remove them using regex for word boundaries
 	if len(n.fillers) > 0 {
@@ -141,6 +141,23 @@ func (n *DefaultNormalizer) Normalize(rawText string) NormalizedText {
 				re := regexp.MustCompile(`\b` + syn + `\b`)
 				if re.MatchString(cleaned) {
 					profile.SynonymsSubstituted[syn] = canonical
+					cleaned = re.ReplaceAllString(cleaned, canonical)
+				}
+			}
+		}
+		cleaned = strings.Join(strings.Fields(cleaned), " ")
+	}
+
+	// 4. Apply entity normalization
+	// Note: We use \b to ensure word boundaries but since Canonical entities
+	// might have uppercase characters (e.g. "VS Code"), we just replace directly.
+	if len(n.entities) > 0 {
+		for canonical, aliases := range n.entities {
+			for _, alias := range aliases {
+				// use word boundary regex to avoid partial matches
+				re := regexp.MustCompile(`\b` + alias + `\b`)
+				if re.MatchString(cleaned) {
+					profile.EntitiesNormalized[alias] = canonical
 					cleaned = re.ReplaceAllString(cleaned, canonical)
 				}
 			}

@@ -105,16 +105,16 @@ All systems operational. No actions required.
 | date | PASS |  | "date     intent = query_date Today's date is Au..." | PASS |
 | today's date | PASS |  | "today's date     intent = query_date Today's da..." | PASS |
 | what is today's date | PASS |  | "what is today's date     intent = query_date To..." | PASS |
-| 2+2 | PASS |  | "2+2     operand2 = 2     operator = +     inten..." | PASS |
-| 55*7 | PASS |  | "55*7     operator = *     operand1 = 55     ope..." | PASS |
-| 100/4 | PASS |  | "100/4     operand1 = 100     operand2 = 4     o..." | PASS |
+| 2+2 | PASS |  | "2+2     intent = calculate     operand2 = 2    ..." | PASS |
+| 55*7 | PASS |  | "55*7     operand1 = 55     operand2 = 7     ope..." | PASS |
+| 100/4 | PASS |  | "100/4     intent = calculate     operator = /  ..." | PASS |
 | weather | PASS |  | "weather     intent = query_weather Weather in L..." | PASS |
 | weather in Hyderabad | PASS |  | "weather in Hyderabad     location = hyderabad  ..." | PASS |
-| create folder test | PASS |  | "create folder test     intent = create_director..." | PASS |
+| create folder test | PASS |  | "create folder test     directory = test     ope..." | PASS |
 | delete folder test | PASS |  | "delete folder test     filename = test     oper..." | PASS |
 | create note shopping | PASS |  | "create note shopping     operation = set     ti..." | PASS |
 | read notes | PASS |  | "read notes     operation = read     intent = ma..." | PASS |
-| delete note shopping | PASS |  | "delete note shopping     operation = delete    ..." | PASS |
+| delete note shopping | PASS |  | "delete note shopping     intent = manage_notes ..." | PASS |
 | battery | PASS |  | "battery     intent = query_battery Battery is a..." | PASS |
 | memory | PASS |  | "memory     intent = query_memory Memory usage: ..." | PASS |
 | shutdown | PASS |  | "shutdown     operation = shutdown     intent = ..." | PASS |
