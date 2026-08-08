@@ -32,6 +32,10 @@ func (b *Builder) Timestamp(t foundation.Timestamp) *Builder {
 	b.obj.timestamp = t
 	return b
 }
+func (b *Builder) Metadata(m foundation.InteractionMetadata) *Builder {
+	b.obj.metadata = m
+	return b
+}
 func (b *Builder) ResolvedIntent(intent string) *Builder {
 	b.obj.resolvedIntent = intent
 	return b

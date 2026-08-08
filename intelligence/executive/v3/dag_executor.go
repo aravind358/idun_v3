@@ -86,8 +86,9 @@ func (e *DAGExecutor) Execute(ctx context.Context, plan *v3.ExecutionPlan) (map[
 				if failed {
 					mu.Lock()
 					results[node.NodeID()] = NodeResult{
-						NodeID: node.NodeID(),
-						Status: NodeSkipped,
+						NodeID:   node.NodeID(),
+						Status:   NodeSkipped,
+						Metadata: node.Metadata(),
 					}
 					mu.Unlock()
 					doneQueue <- node.NodeID()
@@ -145,8 +146,9 @@ func (e *DAGExecutor) Execute(ctx context.Context, plan *v3.ExecutionPlan) (map[
 						inDegree[neighbor] = -1 // mark as processed
 						mu.Lock()
 						results[neighbor] = NodeResult{
-							NodeID: neighbor,
-							Status: NodeSkipped,
+							NodeID:   neighbor,
+							Status:   NodeSkipped,
+							Metadata: nodeMap[neighbor].Metadata(),
 						}
 						mu.Unlock()
 						doneQueue <- neighbor
@@ -185,6 +187,7 @@ func (e *DAGExecutor) executeNode(ctx context.Context, plan *v3.ExecutionPlan, n
 			Status:   NodeFailed,
 			Duration: time.Since(start),
 			Error:    fmt.Sprintf("failed to resolve capability: %v", err),
+			Metadata: node.Metadata(),
 		}
 		mu.Unlock()
 		errChan <- fmt.Errorf("impasse: executor not found")
@@ -270,6 +273,7 @@ func (e *DAGExecutor) executeNode(ctx context.Context, plan *v3.ExecutionPlan, n
 		NodeID:    node.NodeID(),
 		Duration:  duration,
 		OutputRef: outputRef,
+		Metadata:  node.Metadata(),
 	}
 	if execErr != nil {
 		res.Status = NodeFailed

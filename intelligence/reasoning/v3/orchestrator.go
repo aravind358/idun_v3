@@ -31,7 +31,8 @@ func (o *Orchestrator) Reason(ctx context.Context, interpretation *understanding
 		ArtifactID(artifactID).
 		ParentArtifactID(foundation.ParentArtifactID(interpretation.ArtifactID())).
 		EnvelopeID(interpretation.EnvelopeID()).
-		Timestamp(foundation.Timestamp(time.Now()))
+		Timestamp(foundation.Timestamp(time.Now())).
+		Metadata(interpretation.Metadata())
 
 	// 1. Entity Grounding
 	var groundedEntities []GroundedEntity

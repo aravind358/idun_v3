@@ -75,7 +75,7 @@ func (o *Orchestrator) Plan(ctx context.Context, interp *understanding.SemanticI
 
 		// 3. Task Sequencing & DAG Construction
 		nodeIDStr, _ := foundation.NewUUID()
-		node := NewPlanNode(nodeIDStr, selectedCap.ID, boundParams, "NONE")
+		node := NewPlanNode(nodeIDStr, selectedCap.ID, boundParams, "NONE", reasonCtx.Metadata())
 		nodes = append(nodes, node)
 
 		// Create sequential dependency if not the first node

@@ -184,3 +184,13 @@ graph TD
     Executive --> AC[Application Capabilities]
     AC --> N[Native SDKs]
 ```
+
+
+## 7. Ingress & Raw Input Preservation (U8.5)
+
+- **Input fidelity is guaranteed relative to the ingress adapter.**
+- **Every ingress adapter defines its own atomic unit of input.**
+- **`TextInputAdapter` preserves one command exactly.** (As an interactive CLI REPL, the terminal consumes the newline, and a single command line is the atomic unit).
+- **Future document-oriented adapters will preserve entire artifacts byte-for-byte.** (e.g., File, Document, PDF, Voice).
+- **U8.5 is officially certified and frozen.** The Claim Check Pattern is fully implemented using the Core Storage subsystem, propagating only the `PayloadRef` through the Workspace.
+

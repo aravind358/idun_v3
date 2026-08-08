@@ -49,6 +49,7 @@ type jsonReasoningContext struct {
 	ConditionMet       bool                    `json:"ConditionMet"`
 	TruthEvaluated     bool                    `json:"TruthEvaluated"`
 	IsFactuallyTrue    bool                    `json:"IsFactuallyTrue"`
+	Metadata           foundation.InteractionMetadata `json:"Metadata"`
 }
 
 func (r *ReasoningContext) MarshalJSON() ([]byte, error) {
@@ -70,6 +71,7 @@ func (r *ReasoningContext) MarshalJSON() ([]byte, error) {
 		ConditionMet:       r.conditionMet,
 		TruthEvaluated:     r.truthEvaluated,
 		IsFactuallyTrue:    r.isFactuallyTrue,
+		Metadata:           r.metadata,
 	}
 
 	for _, s := range r.enrichedSlots {
@@ -113,6 +115,7 @@ func (r *ReasoningContext) UnmarshalJSON(data []byte) error {
 	r.conditionMet = j.ConditionMet
 	r.truthEvaluated = j.TruthEvaluated
 	r.isFactuallyTrue = j.IsFactuallyTrue
+	r.metadata = j.Metadata
 
 	r.enrichedSlots = make([]EnrichedSlot, len(j.EnrichedSlots))
 	for i, s := range j.EnrichedSlots {

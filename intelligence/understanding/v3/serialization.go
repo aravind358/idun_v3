@@ -126,6 +126,7 @@ type jsonSemanticInterpretation struct {
 	Assumptions          []jsonAssumption       `json:"Assumptions"`
 	Ambiguities          []jsonAmbiguity        `json:"Ambiguities"`
 	Confidence           float64                `json:"Confidence"`
+	Metadata             foundation.InteractionMetadata `json:"Metadata"`
 }
 
 type jsonUnderstandingBatch struct {
@@ -186,6 +187,7 @@ func (s *SemanticInterpretation) MarshalJSON() ([]byte, error) {
 		CompoundIntentCount: s.compoundIntentCount,
 		RequiresContext:     s.requiresContext,
 		Confidence:          s.confidence,
+		Metadata:            s.metadata,
 		Polarity: jsonPolarity{
 			Negated:        s.polarity.negated,
 			NegationMarker: s.polarity.negationMarker,
@@ -292,6 +294,7 @@ func (s *SemanticInterpretation) UnmarshalJSON(data []byte) error {
 	s.compoundIntentCount = j.CompoundIntentCount
 	s.requiresContext = j.RequiresContext
 	s.confidence = j.Confidence
+	s.metadata = j.Metadata
 
 	s.polarity = NewPolarity(j.Polarity.Negated, j.Polarity.NegationMarker)
 	s.sentiment = NewSentiment(j.Sentiment.Valence, j.Sentiment.Intensity, j.Sentiment.Markers)

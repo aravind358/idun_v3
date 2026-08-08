@@ -19,19 +19,21 @@ type PlanNode struct {
 	capability  CapabilityID
 	boundParams map[string]any
 	userImpact  string
+	metadata    foundation.InteractionMetadata
 }
 
-func NewPlanNode(nodeID string, capID CapabilityID, params map[string]any, impact string) PlanNode {
+func NewPlanNode(nodeID string, capID CapabilityID, params map[string]any, impact string, metadata foundation.InteractionMetadata) PlanNode {
 	cp := make(map[string]any)
 	for k, v := range params {
 		cp[k] = v
 	}
-	return PlanNode{nodeID: nodeID, capability: capID, boundParams: cp, userImpact: impact}
+	return PlanNode{nodeID: nodeID, capability: capID, boundParams: cp, userImpact: impact, metadata: metadata}
 }
 
 func (p PlanNode) NodeID() string { return p.nodeID }
 func (p PlanNode) Capability() CapabilityID { return p.capability }
 func (p PlanNode) UserImpact() string { return p.userImpact }
+func (p PlanNode) Metadata() foundation.InteractionMetadata { return p.metadata }
 func (p PlanNode) BoundParams() map[string]any {
 	cp := make(map[string]any)
 	for k, v := range p.boundParams {

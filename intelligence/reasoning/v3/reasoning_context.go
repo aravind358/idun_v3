@@ -75,6 +75,7 @@ type ReasoningContext struct {
 	parentArtifactID foundation.ParentArtifactID
 	envelopeID       foundation.EnvelopeID
 	timestamp        foundation.Timestamp
+	metadata         foundation.InteractionMetadata
 
 	// Ambiguity Collapse
 	resolvedIntent     string
@@ -104,6 +105,7 @@ func (r *ReasoningContext) ParentArtifactID() foundation.ParentArtifactID     { 
 func (r *ReasoningContext) EnvelopeID() foundation.EnvelopeID                 { return r.envelopeID }
 func (r *ReasoningContext) Timestamp() foundation.Timestamp                   { return r.timestamp }
 func (r *ReasoningContext) Version() foundation.Version                       { return foundation.Version(r.specVersion) }
+func (r *ReasoningContext) Metadata() foundation.InteractionMetadata          { return r.metadata }
 
 // Field Getters
 func (r *ReasoningContext) ResolvedIntent() string { return r.resolvedIntent }

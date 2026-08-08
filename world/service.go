@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"idun/intelligence/communication"
+	"idun/intelligence/executive/v3"
 	"idun/intelligence/workspace"
 )
 
@@ -111,7 +112,7 @@ type Service struct {
 	policy       *WorldPolicyProfile
 	capabilities *WorldCapabilities
 	input        InputAdapter
-	output       OutputAdapter
+	output       OutputAdapter // retained for Close() cleanup; egress is via dispatchOutput
 	storer       PayloadStorer
 	ws           workspace.Workspace
 	telemetry    *telemetryCollector
@@ -124,9 +125,10 @@ type Service struct {
 	cancelFunc    context.CancelFunc
 	doneCh        chan struct{}
 
-	started            atomic.Bool
-	closed             atomic.Bool
-	waitForRealization atomic.Bool
+	started atomic.Bool
+	closed  atomic.Bool
+
+	dispatchOutput func(ctx context.Context, interaction *Interaction, execResult *v3.ExecutionResult) error
 }
 
 // ServiceOption configures a Service instance at initialization time.
@@ -158,9 +160,12 @@ func WithCapabilities(caps *WorldCapabilities) ServiceOption {
 	}
 }
 
-// SetWaitForRealization configures whether World should wait for Language Realization output instead of raw Executive output.
-func (s *Service) SetWaitForRealization(wait bool) {
-	s.waitForRealization.Store(wait)
+// SetOutputDispatcher sets the callback to dispatch raw ExecutionResults to the OutputManager.
+// This is injected to avoid cyclic imports between world and world/output.
+func (s *Service) SetOutputDispatcher(fn func(ctx context.Context, interaction *Interaction, execResult *v3.ExecutionResult) error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.dispatchOutput = fn
 }
 
 
@@ -416,8 +421,10 @@ func (s *Service) HandleInteraction(ctx context.Context, interaction *Interactio
 
 // handleResponseEnvelope is the asynchronous Workspace subscription callback.
 // It is invoked by the Workspace when Executive publishes a response on TopicActionExecution.
-// It matches the response to a pending Interaction by ParentRef, constructs a Response,
-// delivers it via OutputAdapter, and updates telemetry.
+//
+// O4 Architecture: World is the sole egress boundary.
+// All output flows through the OutputManager pipeline (dispatchOutput).
+// The legacy s.output.Send() path has been removed.
 //
 // This handler must be fast and non-blocking per Workspace contract.
 func (s *Service) handleResponseEnvelope(ctx context.Context, env communication.Envelope) error {
@@ -425,15 +432,16 @@ func (s *Service) handleResponseEnvelope(ctx context.Context, env communication.
 		return nil
 	}
 
-	// Wait for Presentation layer (either Legacy Realization or the new Router)
-	if s.waitForRealization.Load() && env.Source != "Presentation.LanguageRealization" && env.Source != "Presentation.Router" {
+	// World only handles responses from the Executive V3 pipeline.
+	// Envelopes from other sources (Presentation.Router, etc.) are ignored now that
+	// the Presentation subsystem has been disconnected.
+	if env.Source != "Intelligence.ExecutiveV3" {
 		return nil
 	}
 
 	// Match response to pending interaction via ParentRef.
 	parentID := env.ParentRef
 	if parentID == "" {
-		// Envelope is not a direct reply to one of our interactions; ignore.
 		return nil
 	}
 
@@ -452,55 +460,20 @@ func (s *Service) handleResponseEnvelope(ctx context.Context, env communication.
 	latency := time.Since(entry.startTime)
 	interaction := entry.interaction
 
-	if env.Source == "Presentation.LanguageRealization" || env.Source == "Presentation.Router" {
-		devLog("World", "Received realized output")
-	} else {
-		devLog("World", "Received final output")
-	}
+	devLog("World", "Received Executive response — dispatching to OutputManager")
 
-	// Resolve the human-readable content from CAS.
-	// Language Realization stores a RealizedOutput JSON blob keyed by PayloadRef.
-	// World must retrieve and decode it so the user sees natural language, not a hash.
-	content := env.PayloadRef // defensive fallback: raw storage ref
-	if raw, retrieveErr := s.storer.Retrieve(ctx, env.PayloadRef); retrieveErr == nil && len(raw) > 0 {
-		// Attempt to decode as RealizedOutput (from Language Realization)
-		var realized struct {
-			RealizedText string `json:"realized_text"`
-		}
-		if jsonErr := json.Unmarshal(raw, &realized); jsonErr == nil && realized.RealizedText != "" {
-			content = realized.RealizedText
-		} else {
-			// Payload is raw text (e.g. from Executive directly), use as-is
-			content = string(raw)
-		}
-	}
-	if strings.HasPrefix(content, "storage://") {
-		if inner, err := s.storer.Retrieve(ctx, content); err == nil && len(inner) > 0 {
-			content = string(inner)
+	// Dispatch to the World Output pipeline (non-blocking — runs in a goroutine inside Dispatch).
+	if s.dispatchOutput != nil && env.PayloadRef != "" {
+		if raw, err := s.storer.Retrieve(ctx, env.PayloadRef); err == nil && len(raw) > 0 {
+			var execResult v3.ExecutionResult
+			if err := json.Unmarshal(raw, &execResult); err == nil {
+				_ = s.dispatchOutput(ctx, interaction, &execResult)
+			}
 		}
 	}
 
-	// Construct the Response from the Executive envelope.
-	response, err := NewResponseBuilder().
-		WithInteractionID(interaction.InteractionID).
-		WithSessionID(interaction.SessionID).
-		WithModality(interaction.Modality).
-		WithContent(content).
-		WithPayloadRef(env.PayloadRef).
-		WithStatus(ResponseStatusSuccess).
-		WithResultStatus(ResultStatusSuccess).
-		WithExecutionDuration(latency).
-		WithReplayMetadata(interaction.ReplayMetadata).
-		Build()
-	if err != nil {
-		s.telemetry.recordResponse(ResponseStatusError, 0, latency)
-		return nil
-	}
-
-	// Deliver response via OutputAdapter. Non-blocking timeout is enforced by caller context.
-	_ = s.output.Send(ctx, response)
-	devLog("World", "Response delivered to console.")
-	s.telemetry.recordResponse(ResponseStatusSuccess, len(response.Content), latency)
+	s.telemetry.recordResponse(ResponseStatusSuccess, 0, latency)
+	devLog("World", "Response dispatched to OutputManager.")
 	return nil
 }
 
@@ -535,7 +508,8 @@ func (s *Service) CreateInteraction(
 	fingerprint := ComputeInteractionFingerprint(rawInput, normalized, modality, policy.PolicyFingerprint)
 
 	// Store payload via content-addressed storage (Refinement 12).
-	payloadRef, storeErr := s.storer.Store(ctx, []byte(normalized))
+	// U8.5: Preserve raw input using Claim Check Pattern.
+	payloadRef, storeErr := s.storer.Store(ctx, []byte(rawInput))
 	if storeErr != nil {
 		// Fall back to fingerprint as ref when storage fails.
 		payloadRef = fingerprint

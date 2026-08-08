@@ -1,0 +1,1 @@
+{"requirement_id":"app-weather-1","success":true,"realization":0,"response_type":"weather","operation":"query_weather","data":{"location":"Local","weather":{"Condition":"Partly Cloudy ","FeelsLikeC":"16","FeelsLikeF":"61","Humidity":"26","TemperatureC":"21","TemperatureF":"69","VisibilityKm":"10","WindDirection":"ENE","WindSpeedKmph":"12"}},"duration":4135197200}

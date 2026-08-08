@@ -37,8 +37,7 @@ type SemanticInterpretation struct {
 	assumptions          []Assumption
 	ambiguities          []Ambiguity
 	confidence           float64
-	goalIndex            int
-	totalGoals           int
+	metadata             foundation.InteractionMetadata
 }
 
 // IsImmutable satisfies foundation.Immutable.
@@ -74,5 +73,4 @@ func (s *SemanticInterpretation) ExecutionHints() ExecutionHints            { re
 func (s *SemanticInterpretation) Assumptions() []Assumption                 { a := make([]Assumption, len(s.assumptions)); copy(a, s.assumptions); return a }
 func (s *SemanticInterpretation) Ambiguities() []Ambiguity                  { a := make([]Ambiguity, len(s.ambiguities)); copy(a, s.ambiguities); return a }
 func (s *SemanticInterpretation) Confidence() float64                       { return s.confidence }
-func (s *SemanticInterpretation) GoalIndex() int                            { return s.goalIndex }
-func (s *SemanticInterpretation) TotalGoals() int                           { return s.totalGoals }
+func (s *SemanticInterpretation) Metadata() foundation.InteractionMetadata  { return s.metadata }

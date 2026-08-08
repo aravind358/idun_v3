@@ -12,6 +12,7 @@ type jsonPlanNode struct {
 	Capability  string         `json:"Capability"`
 	BoundParams map[string]any `json:"BoundParams"`
 	UserImpact  string         `json:"UserImpact"`
+	Metadata    foundation.InteractionMetadata `json:"Metadata"`
 }
 
 type jsonDependency struct {
@@ -52,6 +53,7 @@ func (p *ExecutionPlan) MarshalJSON() ([]byte, error) {
 			Capability:  string(n.capability),
 			BoundParams: n.boundParams, // map handles json internally
 			UserImpact:  n.userImpact,
+			Metadata:    n.metadata,
 		})
 	}
 	for _, e := range p.edges {
@@ -80,7 +82,7 @@ func (p *ExecutionPlan) UnmarshalJSON(data []byte) error {
 
 	p.nodes = make([]PlanNode, len(j.Nodes))
 	for i, n := range j.Nodes {
-		p.nodes[i] = NewPlanNode(n.NodeID, CapabilityID(n.Capability), n.BoundParams, n.UserImpact)
+		p.nodes[i] = NewPlanNode(n.NodeID, CapabilityID(n.Capability), n.BoundParams, n.UserImpact, n.Metadata)
 	}
 
 	p.edges = make([]Dependency, len(j.Edges))

@@ -531,48 +531,6 @@ The sequence of implementation for the Native Capability Framework:
 
 ---
 
-## 26. Presentation Layer Improvements
-
-### Template Caching (Deterministic Engine)
-- **Priority**: Medium
-- **Status**: Future Work
-- **Reason**: `presentation/deterministic/engine.go` currently calls `template.ParseFiles(tmplPath)` on every `Realize()` invocation, reading from disk on each request. For high-frequency queries this causes avoidable filesystem I/O on every realization cycle.
-- **Current implementation**: `Engine.Realize()` → `template.ParseFiles(tmplPath)` → render → return. No caching exists.
-- **Desired implementation**: Load and parse all templates once during `NewEngine()` startup (or an explicit `Load()` call). Cache the parsed `*template.Template` values in a `map[string]*template.Template` protected by a read lock. On `Realize()`, look up the pre-parsed template from the map instead of reading disk.
-- **Notes**: The cache is read-only after startup — no locking overhead during execution. Preserve the ability to reload templates for development hot-reload scenarios via an explicit method.
-
-### ResponseType Constants
-- **Priority**: Medium
-- **Status**: Future Work
-- **Reason**: String literals such as `"time"`, `"calculator"`, `"notes"` are currently scattered across capability `Execute()` functions. Typos in any one site silently break the deterministic routing path without compile-time detection.
-- **Current implementation**: `ResponseType: "time"` hardcoded in `capabilities/native/time/capability.go`.
-- **Desired implementation**: Introduce a shared constants package (e.g., `capabilities/responsetypes/constants.go`) defining named constants:
-  ```go
-  const (
-      ResponseTypeTime       = "time"
-      ResponseTypeCalculator = "calculator"
-      ResponseTypeNotes      = "notes"
-  )
-  ```
-  All capabilities and template files should reference these constants.
-- **Notes**: Prevents typos, enables IDE navigation, and centralizes response type definitions across the codebase.
-
-### Output Formatting Helpers
-- **Priority**: Medium
-- **Status**: Future Work
-- **Reason**: Capabilities return raw structured data (e.g., `time.Time`, `int64`, `float64`). Currently templates must format these values inline using Go's default `{{.Field}}` rendering which produces machine-formatted strings (e.g., RFC3339 timestamps, raw float literals).
-- **Current implementation**: `time.tmpl` receives `CurrentTime` as a raw `time.Time` value and renders it using Go's default formatter.
-- **Desired implementation**: Introduce a `presentation/deterministic/helpers.go` package that registers reusable Go template functions:
-  - `formatTime` — locale-aware time display
-  - `formatDate` — day/month/year display
-  - `formatDuration` — human-readable duration (e.g., "2 hours 15 minutes")
-  - `formatFileSize` — byte count to human string (e.g., "1.4 MB")
-  - `formatNumber` — locale-aware number formatting
-  Capabilities continue returning raw structured data. All formatting logic belongs in the realization layer.
-- **Notes**: Template functions must be registered on the `template.FuncMap` before `Execute()` is called.
-
----
-
 ## 27. Localization & Architecture Evolution
 
 ### Template Localization
@@ -723,48 +681,6 @@ The sequence of implementation for the Native Capability Framework:
 - **Status**: Future Work
 - **Reason**: The concurrent `DAGExecutor` requires exhaustive parallel testing.
 - **Desired implementation**: Create more exhaustive test cases in `engine_test.go` using manually constructed `ExecutionPlan` graphs to verify complex parallel traversal, dependencies, and graceful degradation on physical failure without full `planning/v3` mocking overhead.
-
----
-
-## 26. Presentation Layer Improvements
-
-### Template Caching (Deterministic Engine)
-- **Priority**: Medium
-- **Status**: Future Work
-- **Reason**: `presentation/deterministic/engine.go` currently calls `template.ParseFiles(tmplPath)` on every `Realize()` invocation, reading from disk on each request. For high-frequency queries this causes avoidable filesystem I/O on every realization cycle.
-- **Current implementation**: `Engine.Realize()` → `template.ParseFiles(tmplPath)` → render → return. No caching exists.
-- **Desired implementation**: Load and parse all templates once during `NewEngine()` startup (or an explicit `Load()` call). Cache the parsed `*template.Template` values in a `map[string]*template.Template` protected by a read lock. On `Realize()`, look up the pre-parsed template from the map instead of reading disk.
-- **Notes**: The cache is read-only after startup — no locking overhead during execution. Preserve the ability to reload templates for development hot-reload scenarios via an explicit method.
-
-### ResponseType Constants
-- **Priority**: Medium
-- **Status**: Future Work
-- **Reason**: String literals such as `"time"`, `"calculator"`, `"notes"` are currently scattered across capability `Execute()` functions. Typos in any one site silently break the deterministic routing path without compile-time detection.
-- **Current implementation**: `ResponseType: "time"` hardcoded in `capabilities/native/time/capability.go`.
-- **Desired implementation**: Introduce a shared constants package (e.g., `capabilities/responsetypes/constants.go`) defining named constants:
-  ```go
-  const (
-      ResponseTypeTime       = "time"
-      ResponseTypeCalculator = "calculator"
-      ResponseTypeNotes      = "notes"
-  )
-  ```
-  All capabilities and template files should reference these constants.
-- **Notes**: Prevents typos, enables IDE navigation, and centralizes response type definitions across the codebase.
-
-### Output Formatting Helpers
-- **Priority**: Medium
-- **Status**: Future Work
-- **Reason**: Capabilities return raw structured data (e.g., `time.Time`, `int64`, `float64`). Currently templates must format these values inline using Go's default `{{.Field}}` rendering which produces machine-formatted strings (e.g., RFC3339 timestamps, raw float literals).
-- **Current implementation**: `time.tmpl` receives `CurrentTime` as a raw `time.Time` value and renders it using Go's default formatter.
-- **Desired implementation**: Introduce a `presentation/deterministic/helpers.go` package that registers reusable Go template functions:
-  - `formatTime` — locale-aware time display
-  - `formatDate` — day/month/year display
-  - `formatDuration` — human-readable duration (e.g., "2 hours 15 minutes")
-  - `formatFileSize` — byte count to human string (e.g., "1.4 MB")
-  - `formatNumber` — locale-aware number formatting
-  Capabilities continue returning raw structured data. All formatting logic belongs in the realization layer.
-- **Notes**: Template functions must be registered on the `template.FuncMap` before `Execute()` is called.
 
 ---
 
@@ -1089,43 +1005,139 @@ These items are therefore intentionally scheduled for Phase 5.x, where the proje
 
 ✅ **Behavioral Validation Upgrade (Phase 5.2.x)**: Implemented. The Runtime Acceptance Test Harness was completely overhauled to validate user-facing behavior first and explicitly classify failing layers using structured metadata from the runtime.
 
- # #   T e c h n i c a l   D e b t 
+## Technical Debt
+
+### U8.5 †Raw User Input Preservation
+**Status:** Deferred
+
+**Description:**
+Currently the Understanding layer publishes only the SemanticFrame.
+The original raw user utterance is discarded before downstream cognitive systems receive it.
+
+Future reasoning, knowledge, internet, learning, and conversational memory should have access to both:
+- Original raw user input
+- SemanticFrame
+without changing the deterministic Understanding pipeline.
+
+**Reason:**
+Future cognitive modules should reason over natural language, not only normalized semantic representations.
+
+### Normalizer Coupling Audit
+**Status:** Minor Technical Debt
+
+**Description:**
+Some grammar rules currently depend on normalization behavior (for example conversational filler removal).
+This is acceptable for U6 and should remain unchanged.
+Review during future Understanding evolution to reduce coupling where practical without changing deterministic behavior.
+
+
+## Phase U7 †Contextual Understanding
+
+- [ ] **U7.1 Component Expansion**: Add the context-specific semantic fragments (ConceptAnaphora, ConnectorEllipsis, ConceptAffirmation, ConceptNegation) to grammar_components.go.
+- [ ] **U7.2 Context Builders**: Introduce a new BuildContextRule function in grammar_builders.go specifically designed for elliptical structures.
+- [ ] **U7.3 Context Domain Loader**: Create grammar_context.go to house the new rule.context.* definitions.
+- [ ] **U7.4 Context Binder Refactoring**: Deprecate the naive pronoun binding in DefaultReferentBinder in favor of relying on the Grammar Specialist extracting the pronoun as a native slot (SlotAnaphora).
+- [ ] **U7.5 Certification**: Expand eval_phrases.go to test conversational follow-ups and ensure no regressions on the 115 baseline phrases.
+
+
+- [ ] **Minor Improvement: Interface Segregation for State**: Replace the monolithic DialogueState concept with isolated interfaces (MemoryReader, ActiveGoalReader, etc.) for Context Resolver dependencies.
+- [ ] **Minor Improvement: Temporal Anchoring**: Track temporal resolution ("now") as a formal contextual responsibility in the Resolver instead of ad-hoc resolution.
+- [ ] **Minor Improvement: Cross-Domain Clash Handling**: Implement explicit conflict resolution logic for ambiguous pronouns (e.g. if "delete it" could refer to a File or an Alarm).
+
  
- # # #   U 8 . 5      R a w   U s e r   I n p u t   P r e s e r v a t i o n 
- * * S t a t u s : * *   D e f e r r e d 
- 
- * * D e s c r i p t i o n : * * 
- C u r r e n t l y   t h e   U n d e r s t a n d i n g   l a y e r   p u b l i s h e s   o n l y   t h e   S e m a n t i c F r a m e . 
- T h e   o r i g i n a l   r a w   u s e r   u t t e r a n c e   i s   d i s c a r d e d   b e f o r e   d o w n s t r e a m   c o g n i t i v e   s y s t e m s   r e c e i v e   i t . 
- 
- F u t u r e   r e a s o n i n g ,   k n o w l e d g e ,   i n t e r n e t ,   l e a r n i n g ,   a n d   c o n v e r s a t i o n a l   m e m o r y   s h o u l d   h a v e   a c c e s s   t o   b o t h : 
- -   O r i g i n a l   r a w   u s e r   i n p u t 
- -   S e m a n t i c F r a m e 
- w i t h o u t   c h a n g i n g   t h e   d e t e r m i n i s t i c   U n d e r s t a n d i n g   p i p e l i n e . 
- 
- * * R e a s o n : * * 
- F u t u r e   c o g n i t i v e   m o d u l e s   s h o u l d   r e a s o n   o v e r   n a t u r a l   l a n g u a g e ,   n o t   o n l y   n o r m a l i z e d   s e m a n t i c   r e p r e s e n t a t i o n s . 
- 
- # # #   N o r m a l i z e r   C o u p l i n g   A u d i t 
- * * S t a t u s : * *   M i n o r   T e c h n i c a l   D e b t 
- 
- * * D e s c r i p t i o n : * * 
- S o m e   g r a m m a r   r u l e s   c u r r e n t l y   d e p e n d   o n   n o r m a l i z a t i o n   b e h a v i o r   ( f o r   e x a m p l e   c o n v e r s a t i o n a l   f i l l e r   r e m o v a l ) . 
- T h i s   i s   a c c e p t a b l e   f o r   U 6   a n d   s h o u l d   r e m a i n   u n c h a n g e d . 
- R e v i e w   d u r i n g   f u t u r e   U n d e r s t a n d i n g   e v o l u t i o n   t o   r e d u c e   c o u p l i n g   w h e r e   p r a c t i c a l   w i t h o u t   c h a n g i n g   d e t e r m i n i s t i c   b e h a v i o r . 
-  
- 
- # #   P h a s e   U 7      C o n t e x t u a l   U n d e r s t a n d i n g 
- 
- -   [   ]   * * U 7 . 1   C o m p o n e n t   E x p a n s i o n * * :   A d d   t h e   c o n t e x t - s p e c i f i c   s e m a n t i c   f r a g m e n t s   ( C o n c e p t A n a p h o r a ,   C o n n e c t o r E l l i p s i s ,   C o n c e p t A f f i r m a t i o n ,   C o n c e p t N e g a t i o n )   t o   g r a m m a r _ c o m p o n e n t s . g o . 
- -   [   ]   * * U 7 . 2   C o n t e x t   B u i l d e r s * * :   I n t r o d u c e   a   n e w   B u i l d C o n t e x t R u l e   f u n c t i o n   i n   g r a m m a r _ b u i l d e r s . g o   s p e c i f i c a l l y   d e s i g n e d   f o r   e l l i p t i c a l   s t r u c t u r e s . 
- -   [   ]   * * U 7 . 3   C o n t e x t   D o m a i n   L o a d e r * * :   C r e a t e   g r a m m a r _ c o n t e x t . g o   t o   h o u s e   t h e   n e w   r u l e . c o n t e x t . *   d e f i n i t i o n s . 
- -   [   ]   * * U 7 . 4   C o n t e x t   B i n d e r   R e f a c t o r i n g * * :   D e p r e c a t e   t h e   n a i v e   p r o n o u n   b i n d i n g   i n   D e f a u l t R e f e r e n t B i n d e r   i n   f a v o r   o f   r e l y i n g   o n   t h e   G r a m m a r   S p e c i a l i s t   e x t r a c t i n g   t h e   p r o n o u n   a s   a   n a t i v e   s l o t   ( S l o t A n a p h o r a ) . 
- -   [   ]   * * U 7 . 5   C e r t i f i c a t i o n * * :   E x p a n d   e v a l _ p h r a s e s . g o   t o   t e s t   c o n v e r s a t i o n a l   f o l l o w - u p s   a n d   e n s u r e   n o   r e g r e s s i o n s   o n   t h e   1 1 5   b a s e l i n e   p h r a s e s . 
-  
- 
- -   [   ]   * * M i n o r   I m p r o v e m e n t :   I n t e r f a c e   S e g r e g a t i o n   f o r   S t a t e * * :   R e p l a c e   t h e   m o n o l i t h i c   D i a l o g u e S t a t e   c o n c e p t   w i t h   i s o l a t e d   i n t e r f a c e s   ( M e m o r y R e a d e r ,   A c t i v e G o a l R e a d e r ,   e t c . )   f o r   C o n t e x t   R e s o l v e r   d e p e n d e n c i e s . 
- -   [   ]   * * M i n o r   I m p r o v e m e n t :   T e m p o r a l   A n c h o r i n g * * :   T r a c k   t e m p o r a l   r e s o l u t i o n   ( " n o w " )   a s   a   f o r m a l   c o n t e x t u a l   r e s p o n s i b i l i t y   i n   t h e   R e s o l v e r   i n s t e a d   o f   a d - h o c   r e s o l u t i o n . 
- -   [   ]   * * M i n o r   I m p r o v e m e n t :   C r o s s - D o m a i n   C l a s h   H a n d l i n g * * :   I m p l e m e n t   e x p l i c i t   c o n f l i c t   r e s o l u t i o n   l o g i c   f o r   a m b i g u o u s   p r o n o u n s   ( e . g .   i f   " d e l e t e   i t "   c o u l d   r e f e r   t o   a   F i l e   o r   a n   A l a r m ) . 
-  
- 
+
+## Future Enhancements
+
+### Input Tracking
+
+- Introduce InputID for every user interaction entering the cognitive pipeline.
+- Use InputID as the stable reference for retrieving the original user input in future cognitive capabilities.
+- Evaluate InputID propagation across Understanding, Context, Reasoning, Planning, Decision, and Execution.
+
+### Future Source Tracking
+
+- Design a SourceID abstraction to identify where an input originated.
+- Possible sources include:
+  - Host/User
+  - Internet
+  - Vision
+  - Voice
+  - Files/Documents
+  - Memory Retrieval
+  - Other Agents
+  - Future Connectors
+
+- Evaluate whether SourceID should remain independent from InputID.
+- This is a future design task and should not be implemented now.
+
+### U8.5 Discussion
+
+- Before implementing U8.5, perform a full architectural review of InputID propagation.
+- Decide whether the original input should be retrieved through the Storage Engine using InputID.
+- Verify the design against the frozen IDUN architecture before implementation.
+
+
+
+### Storage Subsystem Enhancements
+
+- Implement TTL (Time-To-Live) and Garbage Collection policies for the Core Storage subsystem to prevent unbounded disk growth from preserved raw inputs.
+- Extend the PayloadRef mechanism with metadata capabilities (e.g., MimeType, SourceID) to natively distinguish between Text, Voice, Vision, and binary (PDF) payloads.
+- Evaluate a unified artifact indexing strategy for raw inputs once multimedia (images, audio) ingress is fully introduced.
+
+
+
+### U8.5 Follow-ups: Ingress Adapters
+
+- Add DocumentInputAdapter for full document ingestion.
+- Add FileInputAdapter for byte-for-byte file preservation.
+- Define fidelity guarantees for every ingress adapter.
+- Document adapter-specific atomic input semantics.
+- Evaluate multiline conversational input separately from document ingestion.
+
+
+---
+
+## 28. Output Architecture (O-Series) Future Improvements
+
+### Output Plugin Management & Scalability
+- **Priority**: Low
+- **Status**: Future Architecture Work
+- **Reason**: The O-Series output pipeline establishes a plugin architecture but requires enhanced lifecycle and discovery features for production scalability across multimodal deployments.
+- **Desired implementation**:
+  - Evaluate dynamic plugin discovery/registration for output plugins.
+  - Support multiple simultaneously active output plugins (Console + Voice + Web + Mobile).
+  - Add plugin lifecycle management (Initialize, Start, Stop, Shutdown).
+  - Add plugin health monitoring and diagnostics.
+  - Add plugin configuration and enable/disable support.
+  - Add plugin priority and fallback ordering.
+  - Add hot-reload support for output plugins.
+  - Add output metrics and tracing.
+  - Add streaming output support for long-running responses.
+  - Add output buffering and back-pressure handling.
+  - Add localization/internationalization support to the output pipeline.
+  - Add rich structured output (cards, tables, attachments) for GUI/API clients.
+- **Notes**: These are future enhancements to the output boundary and should not block the initial O-Series migration milestones.
+
+### Configurable Output Pipelines
+- **Priority**: Low
+- **Status**: Future Work
+- **Reason**: Different modalities or deployments may require unique aggregation and formatting logic.
+- **Desired implementation**: Evaluate configurable output pipelines (allowing different aggregation, realization, or formatting strategies to be selected through configuration or plugins).
+- **Notes**: Future enhancement, does not block current O-Series.
+
+### InteractionMetadata Evolution
+- **Priority**: Low
+- **Status**: Future Architecture Work
+- **Reason**: `InteractionMetadata` is established as the canonical transport metadata for the cognitive pipeline. As the runtime grows, it may evolve into a richer shared context object.
+- **Desired implementation**:
+  - Evaluate expanding `InteractionMetadata` into the canonical transport context for the runtime.
+  - Potential future fields include:
+    - `TraceID`
+    - `ConversationID`
+    - `SessionID`
+    - `SourceID`
+    - `SourceType`
+    - `CorrelationID`
+    - `ParentGoalID` (for hierarchical planning)
+    - `CreatedAt`
+- **Notes**: This should evolve incrementally as the runtime grows. Do not implement these fields now. Each field has a designated owning subsystem; new fields should follow the same immutable propagation rules already established.

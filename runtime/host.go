@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -43,13 +42,10 @@ import (
 	underspl "idun/intelligence/understanding/v3/splitter"
 	"idun/intelligence/workspace"
 	"idun/kernel"
-	"idun/presentation"
-	"idun/presentation/deterministic"
-	"idun/presentation/policy"
-	"idun/presentation/realization"
-	"idun/presentation/router"
 	"idun/world"
 	worldtext "idun/world/adapters/text"
+	"idun/world/output"
+	outtext "idun/world/plugins/text"
 )
 
 // ErrInvalidTransition indicates an illegal lifecycle operation given current runtime status.
@@ -92,30 +88,6 @@ type executiveWorkspaceSubAdapter struct {
 
 func (a *executiveWorkspaceSubAdapter) Subscribe(topic communication.TopicID, subscriberID string, handler func(ctx context.Context, env communication.Envelope) error) (executivev3.WorkspaceSubscription, error) {
 	return a.ws.Subscribe(topic, subscriberID, handler)
-}
-
-type realizationWorkspaceSubAdapter struct {
-	ws *workspace.Engine
-}
-
-func (a *realizationWorkspaceSubAdapter) Subscribe(topic communication.TopicID, subscriberID string, handler func(ctx context.Context, env communication.Envelope) error) (realization.WorkspaceSubscription, error) {
-	return a.ws.Subscribe(topic, subscriberID, handler)
-}
-
-func (a *realizationWorkspaceSubAdapter) Publish(ctx context.Context, env communication.Envelope) error {
-	return a.ws.Publish(ctx, env)
-}
-
-type routerWorkspaceSubAdapter struct {
-	ws *workspace.Engine
-}
-
-func (a *routerWorkspaceSubAdapter) Subscribe(topic communication.TopicID, subscriberID string, handler func(ctx context.Context, env communication.Envelope) error) (router.WorkspaceSubscription, error) {
-	return a.ws.Subscribe(topic, subscriberID, handler)
-}
-
-func (a *routerWorkspaceSubAdapter) Publish(ctx context.Context, env communication.Envelope) error {
-	return a.ws.Publish(ctx, env)
 }
 
 type contextWorkspaceSubAdapter struct {
@@ -256,11 +228,9 @@ type RuntimeHost struct {
 	reflectSvc   *reflection.Service
 	learningSvc  *learning.Service
 
-	// Shared infrastructure & Presentation instances
+	// Shared infrastructure instances
 	modelRegSvc    *registry.Service
 	inferenceSvc   *inference.Service
-	realizationSvc *realization.Service
-	routerSvc      *router.Service
 
 	// World boundary subsystem
 	worldSvc  *world.Service
@@ -635,44 +605,7 @@ func (h *RuntimeHost) Build() error {
 		)
 	}
 
-	if h.isSubsystemEnabled("realization") {
-		rlzSvc, err := realization.NewServiceBuilder().
-			WithWorkspace(&realizationWorkspaceSubAdapter{ws: h.workspaceSvc}).
-			WithInference(h.inferenceSvc).
-			WithStorage(&payloadStorerAdapter{store: h.storageSvc}).
-			WithConfig(realization.DefaultConfig()).
-			Build()
-		if err != nil {
-			return fmt.Errorf("failed to construct realization service: %w", err)
-		}
-		h.realizationSvc = rlzSvc
 
-		// Wire the RealizationPolicy.
-		// ResponseType rules (precise): map known response types directly to their engine.
-		// Strategy fallback (coarse): used for capabilities that omit ResponseType (e.g. Files, System).
-		detEngine := deterministic.NewEngine(filepath.Join(h.cfg.StoragePath, "templates"))
-		responseTypeRules := map[string]presentation.RealizationEngine{
-			"calculator": detEngine,
-			"time":       detEngine,
-			"date":       detEngine,
-			"notes":      detEngine,
-			"reminder":   detEngine,
-			"files":      detEngine,
-			"system":     detEngine,
-			"weather":    detEngine,
-		}
-		strategyFallback := map[presentation.RealizationStrategy]presentation.RealizationEngine{
-			presentation.StrategyDeterministic: detEngine,
-			presentation.StrategyGenerative:    rlzSvc,
-		}
-		realizationPolicy := policy.NewDeterministicRealizationPolicy(responseTypeRules, strategyFallback)
-
-		h.routerSvc = router.NewService(
-			&routerWorkspaceSubAdapter{ws: h.workspaceSvc},
-			&payloadStorerAdapter{store: h.storageSvc},
-			realizationPolicy,
-		)
-	}
 
 	// World boundary subsystem — registered at PhaseBackground (after all cognitive subsystems).
 	// Uses os.Stdin and os.Stdout for Phase 1 text I/O. Future adapters inject alternative readers/writers.
@@ -702,11 +635,25 @@ func (h *RuntimeHost) Build() error {
 		if worldErr != nil {
 			return fmt.Errorf("failed to construct World service: %w", worldErr)
 		}
-		h.worldSvc = worldSvc
-	}
 
-	if h.realizationSvc != nil && h.worldSvc != nil {
-		h.worldSvc.SetWaitForRealization(true)
+		// Initialize Output Pipeline (O-Series)
+		pluginRegistry := output.NewDefaultPluginRegistry()
+		aggregator := output.NewDefaultAggregator()
+		engine := output.NewDefaultOutputEngine()
+		
+		txtFmt := outtext.NewDefaultTextFormatter()
+		txtPlugin := outtext.NewPlugin(txtFmt, outtext.NewTextWriterAdapter(outW))
+		_ = pluginRegistry.Register(txtPlugin)
+
+		outputManager := output.NewDefaultOutputManager(
+			pluginRegistry, 
+			aggregator, 
+			engine,
+			&payloadStorerAdapter{store: h.storageSvc},
+		)
+		worldSvc.SetOutputDispatcher(outputManager.Dispatch)
+
+		h.worldSvc = worldSvc
 	}
 
 	h.built = true
@@ -869,12 +816,6 @@ func (h *RuntimeHost) Register() error {
 	}
 	if h.learningSvc != nil {
 		registerWrap("Intelligence.Learning", kernel.PhaseBackground, h.learningSvc)
-	}
-	if h.realizationSvc != nil {
-		// registerWrap("Presentation.LanguageRealization", kernel.PhaseBackground, h.realizationSvc)
-		// The realization service is now invoked directly by the Router.
-		// Register the Router instead.
-		registerWrap("Presentation.Router", kernel.PhaseBackground, h.routerSvc)
 	}
 	if h.worldSvc != nil {
 		registerWrap("World.Service", kernel.PhaseBackground, h.worldSvc)

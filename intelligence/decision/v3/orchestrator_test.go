@@ -30,7 +30,7 @@ func TestOrchestrator_Decide_Approved(t *testing.T) {
 	planID, _ := foundation.NewUUID()
 	envID, _ := foundation.NewUUID()
 
-	n1 := planning.NewPlanNode("n1", planning.CapabilityID("urn:capability:device.turn_on"), nil, "Turn on device")
+	n1 := planning.NewPlanNode("n1", planning.CapabilityID("urn:capability:device.turn_on"), nil, "Turn on device", foundation.InteractionMetadata{})
 
 	plan, _ := planning.NewBuilder().
 		ArtifactID(foundation.ArtifactID(planID)).
@@ -61,7 +61,7 @@ func TestOrchestrator_Decide_Rejected(t *testing.T) {
 	planID, _ := foundation.NewUUID()
 	envID, _ := foundation.NewUUID()
 
-	n1 := planning.NewPlanNode("n1", planning.CapabilityID("urn:capability:nuclear.launch"), nil, "Launch nukes")
+	n1 := planning.NewPlanNode("n1", planning.CapabilityID("urn:capability:nuclear.launch"), nil, "Launch nukes", foundation.InteractionMetadata{})
 
 	plan, _ := planning.NewBuilder().
 		ArtifactID(foundation.ArtifactID(planID)).

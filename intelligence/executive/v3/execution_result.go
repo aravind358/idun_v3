@@ -32,6 +32,7 @@ type NodeResult struct {
 	Duration  time.Duration `json:"duration"`
 	OutputRef string        `json:"output_ref,omitempty"`
 	Error     string        `json:"error,omitempty"`
+	Metadata  foundation.InteractionMetadata `json:"metadata"`
 }
 
 // ExecutionResult represents the physical runtime outcome of executing a committed DecisionRecord.

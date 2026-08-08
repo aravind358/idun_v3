@@ -1,0 +1,1 @@
+{"requirement_id":"app-weather-1","success":true,"realization":0,"response_type":"weather","operation":"query_weather","data":{"location":"Local","weather":{"Condition":"Overcast ","FeelsLikeC":"12","FeelsLikeF":"53","Humidity":"41","TemperatureC":"16","TemperatureF":"60","VisibilityKm":"10","WindDirection":"ENE","WindSpeedKmph":"12"}},"duration":160270200}

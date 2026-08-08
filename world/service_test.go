@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"idun/intelligence/communication"
+	"idun/intelligence/executive/v3"
 	"idun/intelligence/workspace"
 	"idun/world"
 	"idun/world/adapters/text"
@@ -19,6 +21,7 @@ import (
 // ============================================================================
 
 type mockPayloadStorer struct {
+	mu     sync.Mutex
 	stored map[string][]byte
 }
 
@@ -27,12 +30,16 @@ func newMockPayloadStorer() *mockPayloadStorer {
 }
 
 func (m *mockPayloadStorer) Store(_ context.Context, data []byte) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	key := "mock-ref-" + string(data[:min(8, len(data))])
 	m.stored[key] = data
 	return key, nil
 }
 
 func (m *mockPayloadStorer) Retrieve(_ context.Context, key string) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	val, ok := m.stored[key]
 	if !ok {
 		return nil, errors.New("not found")
@@ -432,10 +439,19 @@ func TestService_ResponseCorrelation_SuccessAndMismatch(t *testing.T) {
 		t.Fatalf("HandleInteraction failed: %v", err)
 	}
 
+	// Setup a mock dispatcher to verify correlation.
+	var dispatched atomic.Bool
+	svc.SetOutputDispatcher(func(ctx context.Context, interaction *world.Interaction, execResult *v3.ExecutionResult) error {
+		if interaction.InteractionID == "test-id-001" {
+			dispatched.Store(true)
+		}
+		return nil
+	})
+
 	// 1. Publish an envelope on TopicActionExecution with a mismatched/empty ParentRef.
 	// World must ignore it and not output anything.
 	mismatchEnv, _ := communication.NewEnvelopeBuilder().
-		WithSource("Intelligence.Executive").
+		WithSource("Intelligence.ExecutiveV3").
 		WithTopic(communication.TopicActionExecution).
 		WithParentRef("mismatched-parent-id").
 		WithPayloadRef("should not be printed").
@@ -447,17 +463,20 @@ func TestService_ResponseCorrelation_SuccessAndMismatch(t *testing.T) {
 	}
 
 	time.Sleep(50 * time.Millisecond)
-	if outBuf.Len() > 0 {
-		t.Fatalf("expected no output for mismatched ParentRef, got: %q", outBuf.String())
+	if dispatched.Load() {
+		t.Fatalf("expected no dispatch for mismatched ParentRef")
 	}
 
 	// 2. Publish an envelope on TopicActionExecution with the correct ParentRef (interaction.InteractionID).
-	// World must correlate it and deliver the Response through output.Send.
+	// Store a dummy empty JSON payload for it to retrieve and unmarshal.
+	dummyBytes := []byte(`{}`)
+	payloadRef, _ := storer.Store(ctx, dummyBytes)
+
 	matchEnv, _ := communication.NewEnvelopeBuilder().
-		WithSource("Intelligence.Executive").
+		WithSource("Intelligence.ExecutiveV3").
 		WithTopic(communication.TopicActionExecution).
 		WithParentRef(interaction.InteractionID).
-		WithPayloadRef("Hello from IDUN cognitive pipeline!").
+		WithPayloadRef(payloadRef).
 		WithModality("structured-frame").
 		WithConfidence(0.95).
 		Build()
@@ -468,14 +487,14 @@ func TestService_ResponseCorrelation_SuccessAndMismatch(t *testing.T) {
 	// Wait up to 200ms for async response correlation and output delivery.
 	deadline := time.Now().Add(200 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		if strings.Contains(outBuf.String(), "Hello from IDUN cognitive pipeline!") {
+		if dispatched.Load() {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	if !strings.Contains(outBuf.String(), "Hello from IDUN cognitive pipeline!") {
-		t.Fatalf("expected output to contain response text via ParentRef correlation, got: %q", outBuf.String())
+	if !dispatched.Load() {
+		t.Fatalf("expected output dispatcher to be called via ParentRef correlation")
 	}
 }
 

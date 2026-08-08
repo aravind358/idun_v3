@@ -184,12 +184,8 @@ func (b *Builder) Confidence(c float64) *Builder {
 	b.obj.confidence = c
 	return b
 }
-func (b *Builder) GoalIndex(g int) *Builder {
-	b.obj.goalIndex = g
-	return b
-}
-func (b *Builder) TotalGoals(t int) *Builder {
-	b.obj.totalGoals = t
+func (b *Builder) Metadata(m foundation.InteractionMetadata) *Builder {
+	b.obj.metadata = m
 	return b
 }
 

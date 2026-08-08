@@ -43,8 +43,11 @@ func Synthesize(
 		TemporalAnchors(anchors).
 		ComposedTimestamps(composed).
 		SecondaryIntents(secondary).
-		GoalIndex(goalIndex).
-		TotalGoals(totalGoals)
+		Metadata(foundation.InteractionMetadata{
+			GoalID:     string(artifactID), 
+			GoalIndex:  goalIndex,
+			TotalGoals: totalGoals,
+		})
 
 	if status == StatusFailed {
 		builder.PrimaryIntent("unresolved_intent")
