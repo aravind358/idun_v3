@@ -233,6 +233,8 @@ func TestLayer1EndToEndRuntimeDemonstration(t *testing.T) {
 	templatesDir := filepath.Join(tempDir, "templates")
 	os.MkdirAll(templatesDir, 0755)
 	os.WriteFile(filepath.Join(templatesDir, "communicative.tmpl"), []byte("Hello {{.intent}}"), 0644)
+	os.WriteFile(filepath.Join(templatesDir, "greeting.tmpl"), []byte("Hello from greeting template"), 0644)
+	os.WriteFile(filepath.Join(templatesDir, "weather.tmpl"), []byte("Weather template output"), 0644)
 
 	input := bytes.NewReader([]byte("Hello IDUN\n"))
 	outBuf := &syncBuffer{}
@@ -281,6 +283,8 @@ func TestLayer1ManualInteractionsSuite(t *testing.T) {
 	templatesDir := filepath.Join(tempDir, "templates")
 	os.MkdirAll(templatesDir, 0755)
 	os.WriteFile(filepath.Join(templatesDir, "communicative.tmpl"), []byte("Hello {{.intent}}"), 0644)
+	os.WriteFile(filepath.Join(templatesDir, "greeting.tmpl"), []byte("Hello from greeting template"), 0644)
+	os.WriteFile(filepath.Join(templatesDir, "weather.tmpl"), []byte("Weather template output"), 0644)
 
 	pipeReader, pipeWriter := io.Pipe()
 	outBuf := &syncBuffer{}

@@ -1,1 +1,0 @@
-{"SpecVersion":"3.0","ArtifactID":"70a6ba1c-4f9d-447b-bf3b-ff43a982e57d","ParentArtifactID":"4cdddae8-5c98-4dd5-9c87-9e28fef4e204","Timestamp":"2026-08-03T00:35:54.533145+05:30","PlanIntent":"","ExecutionClass":"","Nodes":[{"NodeID":"c3e3ba04-f748-4b6d-82c3-6143905cfddd","Capability":"app-notes-1","BoundParams":{},"UserImpact":"NONE"}],"Edges":null}

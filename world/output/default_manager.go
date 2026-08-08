@@ -102,13 +102,13 @@ func resolveCapabilityText(raw []byte) string {
 		return realized.RealizedText
 	}
 
-	// Raw text fallback (e.g. plain string payload from a test fixture or legacy node).
+	// Raw text fallback
 	return string(raw)
 }
 
 // process is the synchronous core of the output pipeline, run inside a goroutine by Dispatch.
 // Responsibility split (per O4 architectural rules):
-//   1. OutputManager  — retrieves CAS payloads, builds ResolvedContent
+//   1. OutputManager  — retrieves CAS payloads, builds ResolvedData
 //   2. OutputEngine   — transforms CompositeResponse → OutputDocument (no CAS access)
 //   3. OutputPlugin   — formats and writes the OutputDocument (modality-specific I/O)
 func (m *DefaultOutputManager) process(ctx context.Context, interaction *world.Interaction, execResult *v3.ExecutionResult) {
@@ -122,7 +122,7 @@ func (m *DefaultOutputManager) process(ctx context.Context, interaction *world.I
 	// 2. Resolve CAS payloads — OutputManager is the only layer that touches CAS.
 	//    We iterate in semantic goal order (OrderedNodeResults, already sorted by GoalIndex).
 	if m.retriever != nil && len(compositeResp.OrderedNodeResults) > 0 {
-		var segments []string
+		var payloads []OutputPayload
 		for _, nr := range compositeResp.OrderedNodeResults {
 			switch nr.Status {
 			case v3.NodeCompleted:
@@ -134,23 +134,31 @@ func (m *DefaultOutputManager) process(ctx context.Context, interaction *world.I
 					fmt.Printf("[OutputManager] Warning: could not retrieve payload for node %s: %v\n", nr.NodeID, retrieveErr)
 					continue
 				}
-				if text := resolveCapabilityText(raw); text != "" {
-					segments = append(segments, text)
+				if payload := resolveCapabilityPayload(raw); payload != nil {
+					payloads = append(payloads, *payload)
 				}
 			case v3.NodeFailed:
 				if nr.Error != "" {
-					segments = append(segments, fmt.Sprintf("One action could not be completed: %s", nr.Error))
+					payloads = append(payloads, OutputPayload{
+						ResponseType: "error",
+						Data:         nr.Error,
+					})
 				}
 			case v3.NodeSkipped:
 				// Skipped nodes produce no output.
 			}
 		}
-		compositeResp.ResolvedContent = strings.Join(segments, "\n\n")
+		compositeResp.ResolvedData = payloads
 	}
 
 	// Fallback when there are no segments (e.g. no retriever, or all nodes skipped).
-	if compositeResp.ResolvedContent == "" {
-		compositeResp.ResolvedContent = fmt.Sprintf("[Execution completed at %s]", time.Now().Format(time.RFC3339))
+	if len(compositeResp.ResolvedData) == 0 {
+		compositeResp.ResolvedData = []OutputPayload{
+			{
+				ResponseType: "system",
+				Data:         fmt.Sprintf("[Execution completed at %s]", time.Now().Format(time.RFC3339)),
+			},
+		}
 	}
 
 	// 3. Realize — OutputEngine transforms CompositeResponse → OutputDocument.
@@ -186,6 +194,38 @@ func (m *DefaultOutputManager) process(ctx context.Context, interaction *world.I
 	// 6. Write — physical I/O delivery.
 	if err := plugin.Write(ctx, doc); err != nil {
 		fmt.Printf("[OutputManager] Error writing document: %v\n", err)
-		return
+	}
+}
+
+// resolveCapabilityPayload extracts structured capability data from a raw JSON payload.
+func resolveCapabilityPayload(raw []byte) *OutputPayload {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	var capResult capabilities.CapabilityResult
+	if err := json.Unmarshal(raw, &capResult); err == nil {
+		if !capResult.Success && capResult.Error != nil {
+			return &OutputPayload{
+				ResponseType: "error",
+				Data:         capResult.Error.Message,
+			}
+		}
+		
+		rt := ResponseType(capResult.ResponseType)
+		if rt == "" {
+			rt = "unknown"
+		}
+		
+		return &OutputPayload{
+			ResponseType: rt,
+			Data:         capResult.Data,
+		}
+	}
+
+	// Fallback to raw bytes if it cannot be parsed as a CapabilityResult.
+	return &OutputPayload{
+		ResponseType: "raw",
+		Data:         string(raw),
 	}
 }

@@ -30,9 +30,9 @@ func New(deps core.AppCapabilityDependencies) *Capability {
 func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityRequest) (capabilities.CapabilityResult, error) {
 	start := time.Now()
 
-	// 1. Validation
-	if err := c.validateRequest(req); err != nil {
-		return c.normalizeError(req.RequirementID, start, "Validation", err)
+	// 1. Validation of envelope
+	if req.RequirementID == "" {
+		return c.normalizeError(req.RequirementID, start, "Validation", errors.New("missing requirement ID"))
 	}
 
 	// 2. Lifecycle Check
@@ -40,48 +40,23 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 		return c.normalizeError(req.RequirementID, start, "Unavailable", err)
 	}
 
-	opStr := req.Parameters["operation"]
-	operation := WeatherOperation(opStr)
+	// 3. Binding & Validation
+	typedReq, err := BindWeatherRequest(req.Parameters)
+	if err != nil {
+		return c.normalizeError(req.RequirementID, start, "Validation", err)
+	}
 
-	// 3. Execution via Native Capability Orchestration
-	data, execErr := c.executeWeatherRequest(ctx, req.RequirementID, operation, req.Parameters)
+	// 4. Execution via Native Capability Orchestration
+	data, execErr := c.executeWeatherRequest(ctx, req.RequirementID, typedReq)
 
 	if execErr != nil {
 		return c.normalizeError(req.RequirementID, start, "Execution", execErr)
 	}
 
-	intentStr := req.Parameters["intent"]
-	if intentStr == "" {
-		intentStr = "query_weather"
-	}
-
-	return c.normalizeResult(req.RequirementID, start, intentStr, data), nil
+	return c.normalizeResult(req.RequirementID, start, typedReq.Intent, data), nil
 }
 
-func (c *Capability) validateRequest(req capabilities.CapabilityRequest) error {
-	if req.RequirementID == "" {
-		return errors.New("missing requirement ID")
-	}
 
-	operation := req.Parameters["operation"]
-	if operation == "" {
-		operation = string(OperationCurrent)
-		req.Parameters["operation"] = operation
-	}
-
-	op := WeatherOperation(operation)
-	if !op.IsValid() {
-		return errors.New("unsupported operation: " + operation)
-	}
-
-	location := req.Parameters["location"]
-	if location == "" {
-		location = "Local"
-		req.Parameters["location"] = location
-	}
-
-	return nil
-}
 
 func (c *Capability) checkLifecycle() error {
 	state := c.State().Lifecycle
@@ -91,12 +66,12 @@ func (c *Capability) checkLifecycle() error {
 	return nil
 }
 
-func (c *Capability) executeWeatherRequest(ctx context.Context, reqID string, operation WeatherOperation, params map[string]string) (map[string]interface{}, error) {
+func (c *Capability) executeWeatherRequest(ctx context.Context, reqID string, req WeatherRequest) (map[string]interface{}, error) {
 	if c.Resolver == nil {
 		return nil, errors.New("native capability resolver is not wired")
 	}
 
-	location := params["location"]
+	location := req.Location
 	
 	// Format URL for wttr.in (example free API)
 	// We use the JSON format for programmatic parsing

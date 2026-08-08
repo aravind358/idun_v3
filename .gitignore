@@ -1,0 +1,54 @@
+# ==============================================================================
+# IDUN V3 .gitignore
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Build Outputs
+# ------------------------------------------------------------------------------
+# Compiled executables
+*.exe
+*.exe~
+*.test
+*.test.exe
+*.out
+
+# Go build caches and output directory
+/bin/
+
+# ------------------------------------------------------------------------------
+# Runtime Storage & Data
+# ------------------------------------------------------------------------------
+# Ignore all runtime payload storage and generated artifacts
+/data/runtime/*
+
+# Whitelist source templates required by the application
+!/data/runtime/templates/
+!/data/runtime/.gitkeep
+
+# ------------------------------------------------------------------------------
+# Logs & Traces
+# ------------------------------------------------------------------------------
+# Ignore specific log directories, avoiding a global *.log rule
+/logs/*
+!/logs/.gitkeep
+/reports/runtime/
+/reports/traces/raw/
+/reports/traces/parsed/
+/reports/traces/results/
+
+# ------------------------------------------------------------------------------
+# Temporary Files & Developer Environments
+# ------------------------------------------------------------------------------
+# Scratchpads, sandboxes, and agent work areas
+/sandbox/
+/scratch/
+/scratch_tmp/
+/tmp/
+/.tmp/
+/.gotmp/
+/.idun/
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store

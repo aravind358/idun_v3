@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"time"
 
 	"idun/capabilities"
@@ -27,10 +26,10 @@ func New(deps core.AppCapabilityDependencies) *Capability {
 // Execute fulfills the Capability interface.
 func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityRequest) (capabilities.CapabilityResult, error) {
 	start := time.Now()
-	fmt.Printf("[DEBUG] Calculator capability received parameters: %v\n", req.Parameters)
 
-	// 1. Validation
-	if err := c.validateRequest(req); err != nil {
+	// 1. Binding & Validation
+	typedReq, err := BindCalculatorRequest(req.Parameters)
+	if err != nil {
 		return c.normalizeError(req.RequirementID, start, "Validation", err)
 	}
 
@@ -39,40 +38,13 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 		return c.normalizeError(req.RequirementID, start, "Unavailable", err)
 	}
 
-	opStr := req.Parameters["operation"]
-	operation := CalculatorOperation(opStr)
-
 	// 3. Execution
-	data, execErr := c.executeMath(operation, req.Parameters)
-
+	data, execErr := c.executeMath(typedReq)
 	if execErr != nil {
 		return c.normalizeError(req.RequirementID, start, "Execution", execErr)
 	}
 
-	intentStr := req.Parameters["intent"]
-	if intentStr == "" {
-		intentStr = "calculate"
-	}
-
-	return c.normalizeResult(req.RequirementID, start, intentStr, data), nil
-}
-
-func (c *Capability) validateRequest(req capabilities.CapabilityRequest) error {
-	if req.RequirementID == "" {
-		return errors.New("missing requirement ID")
-	}
-
-	operation := req.Parameters["operation"]
-	if operation == "" {
-		return errors.New("missing 'operation' parameter")
-	}
-
-	op := CalculatorOperation(operation)
-	if !op.IsValid() {
-		return errors.New("unsupported operation: " + operation)
-	}
-
-	return nil
+	return c.normalizeResult(req.RequirementID, start, typedReq.Intent, data), nil
 }
 
 func (c *Capability) checkLifecycle() error {
@@ -83,49 +55,35 @@ func (c *Capability) checkLifecycle() error {
 	return nil
 }
 
-func (c *Capability) executeMath(operation CalculatorOperation, params map[string]string) (map[string]interface{}, error) {
-	aStr, ok1 := params["a"]
-	bStr, ok2 := params["b"]
-	
-	if !ok1 || !ok2 {
-		return nil, errors.New("missing operands 'a' or 'b'")
-	}
-
-	a, err1 := strconv.ParseFloat(aStr, 64)
-	b, err2 := strconv.ParseFloat(bStr, 64)
-
-	if err1 != nil || err2 != nil {
-		return nil, errors.New("operands 'a' and 'b' must be numeric")
-	}
-
+func (c *Capability) executeMath(req CalculatorRequest) (map[string]interface{}, error) {
 	var result float64
 
-	switch operation {
+	switch req.Operation {
 	case OperationAdd:
-		result = a + b
+		result = req.OperandA + req.OperandB
 	case OperationSubtract:
-		result = a - b
+		result = req.OperandA - req.OperandB
 	case OperationMultiply:
-		result = a * b
+		result = req.OperandA * req.OperandB
 	case OperationDivide:
-		if b == 0 {
+		if req.OperandB == 0 {
 			return nil, errors.New("division by zero")
 		}
-		result = a / b
+		result = req.OperandA / req.OperandB
 	case OperationModulo:
-		if b == 0 {
+		if req.OperandB == 0 {
 			return nil, errors.New("modulo by zero")
 		}
-		result = float64(int64(a) % int64(b)) // Simple modulo for MVP
+		result = float64(int64(req.OperandA) % int64(req.OperandB)) // Simple modulo for MVP
 	default:
-		return nil, fmt.Errorf("unsupported operation: %s", operation)
+		return nil, fmt.Errorf("unsupported operation: %s", req.Operation)
 	}
 
 	return map[string]interface{}{
 		"result": result,
-		"a":      a,
-		"b":      b,
-		"op":     string(operation),
+		"a":      req.OperandA,
+		"b":      req.OperandB,
+		"op":     string(req.Operation),
 	}, nil
 }
 

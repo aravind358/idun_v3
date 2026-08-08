@@ -1,9 +1,0 @@
-# import config
-packagefile idun/capabilities=C:\Users\ARAVIND\AppData\Local\go-build\e8\e819a98e845f72a7915edd9add61391836980f62626235837aff9ff873acd409-d
-packagefile idun/capabilities/applications/calculator=C:\Users\ARAVIND\AppData\Local\go-build\12\12f093bacb84258c85fd299c9473fca3047df84b335af1b55a99fab3805fd4b8-d
-packagefile idun/capabilities/applications/core=C:\Users\ARAVIND\AppData\Local\go-build\72\72be77f3c159c023c84646ac1163d50ffd672d27c7fc3b0deb68483c54287841-d
-packagefile idun/capabilities/applications/files=C:\Projects\idun_v3\bin\go-build2298410322\b213\_pkg_.a
-packagefile idun/capabilities/applications/notes=C:\Users\ARAVIND\AppData\Local\go-build\63\63237cbecdc9cefbab0ae261031fe4cd38fab5aef2d02a7b2aeff4587b39ce10-d
-packagefile idun/capabilities/applications/reminder=C:\Users\ARAVIND\AppData\Local\go-build\e2\e243da079db9d40022dc58ebd0d54e848ae7de74f60412104b9b47f41c070ac8-d
-packagefile idun/capabilities/applications/system=C:\Users\ARAVIND\AppData\Local\go-build\11\114ce93630d9c6f77f0f40008bc8891d7c586d74d484ae39d83c536390c13478-d
-packagefile idun/capabilities/applications/weather=C:\Users\ARAVIND\AppData\Local\go-build\e0\e03dbb585dbc90b7325b558d02f64c162e04843e4717c2a181c7130d37ba50ac-d

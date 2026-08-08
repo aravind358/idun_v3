@@ -1,1 +1,0 @@
-{"SpecVersion":"3.0","ArtifactID":"142c471f-30e6-4eb6-9b8d-5dcd5df6f432","ParentArtifactID":"a1d3a9b4-3024-4a6e-b5a6-a89431de7483","Timestamp":"2026-08-03T00:35:58.4374098+05:30","PlanIntent":"","ExecutionClass":"","Nodes":[{"NodeID":"4b75d7d2-56fb-488d-95f8-146e5355d2a4","Capability":"app-calc-1","BoundParams":{},"UserImpact":"NONE"}],"Edges":null}

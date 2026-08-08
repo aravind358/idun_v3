@@ -1,8 +1,0 @@
-# import config
-packagefile context=C:\Users\ARAVIND\AppData\Local\go-build\c3\c340c460ce12a2858a611c5ce961880a76a6b5ce762150e85816d4bac48af41b-d
-packagefile crypto/rand=C:\Users\ARAVIND\AppData\Local\go-build\09\09de9a7872bbed919b849c3e7a12685f246e0fcbe708a6ece709835913270379-d
-packagefile encoding/hex=C:\Users\ARAVIND\AppData\Local\go-build\f9\f9e59c691fd0d5736afa5d72041e1619ea69f8d115f241c1b618b05425afb59b-d
-packagefile errors=C:\Users\ARAVIND\AppData\Local\go-build\b9\b9c753b360cfd5931b8a1f9ce14cd677cacb00c945669b51bcf59fb10b57be0b-d
-packagefile idun/intelligence/communication=C:\Projects\idun_v3\bin\go-build1749222220\b103\_pkg_.a
-packagefile sync=C:\Users\ARAVIND\AppData\Local\go-build\8b\8b070f1d34f3b75285dd30d9d3bdeeb63b4cc4ade1b81b294e41a46494791b83-d
-packagefile time=C:\Users\ARAVIND\AppData\Local\go-build\91\91e1d6fa1a93b102e6adbc1336142d80c6f15f37aec335bb8f000d57cf60d526-d

@@ -25,16 +25,22 @@ type Slot struct {
 // - OrderedNodeResults preserves the canonical semantic goal order established by
 //   the Understanding subsystem (sorted by NodeResult.Metadata.GoalIndex).
 // - NodeResults provides fast lookup by NodeID for backward compatibility.
-// - ResolvedContent is the fully realized human-readable content, assembled by the
-//   OutputManager from CAS payloads. The OutputEngine reads this field and never
-//   touches CAS directly.
-// - RealizationOptions specifies the presentation metadata for formatting.
+// - ResolvedData contains the structured capability payloads extracted from CAS.
+// - Options specifies the presentation metadata for formatting.
 type CompositeResponse struct {
 	ExecutionID        string
 	NodeResults        map[string]v3.NodeResult
 	OrderedNodeResults []v3.NodeResult
-	ResolvedContent    string
+	ResolvedData       []OutputPayload
 	Options            RealizationOptions
+}
+
+// PrimaryResponseType safely extracts the dominant response type for the payload, eliminating slice ordering assumptions.
+func (c *CompositeResponse) PrimaryResponseType() ResponseType {
+	if len(c.ResolvedData) > 0 {
+		return c.ResolvedData[0].ResponseType
+	}
+	return ""
 }
 
 // Aggregator combines multiple NodeResults from an ExecutionResult into a single CompositeResponse.

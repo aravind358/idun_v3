@@ -1,1 +1,0 @@
-{"requirement_id":"app-weather-1","success":true,"realization":0,"response_type":"weather","operation":"query_weather","data":{"location":"hyderabad","weather":{"Condition":"Patchy rain nearby","FeelsLikeC":"32","FeelsLikeF":"89","Humidity":"60","TemperatureC":"29","TemperatureF":"85","VisibilityKm":"10","WindDirection":"W","WindSpeedKmph":"27"}},"duration":2255348100}

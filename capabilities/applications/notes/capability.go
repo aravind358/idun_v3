@@ -27,9 +27,9 @@ func New(deps core.AppCapabilityDependencies) *Capability {
 func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityRequest) (capabilities.CapabilityResult, error) {
 	start := time.Now()
 
-	// 1. Validation
-	if err := c.validateRequest(req); err != nil {
-		return c.normalizeError(req.RequirementID, start, "Validation", err)
+	// 1. Validation of envelope
+	if req.RequirementID == "" {
+		return c.normalizeError(req.RequirementID, start, "Validation", errors.New("missing requirement ID"))
 	}
 
 	// 2. Lifecycle Check
@@ -37,57 +37,40 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 		return c.normalizeError(req.RequirementID, start, "Unavailable", err)
 	}
 
-	opStr := req.Parameters["operation"]
-	operation := NotesOperation(opStr)
+	// 3. Binding & Validation
+	typedReq, err := BindNotesRequest(req.Parameters)
+	if err != nil {
+		return c.normalizeError(req.RequirementID, start, "Validation", err)
+	}
 
-	// 3. Execution
+	// 4. Execution
 	var data map[string]interface{}
 	var execErr error
 
-	switch operation {
+	op := NotesOperation(typedReq.Operation)
+	switch op {
 	case OperationCreate:
-		data, execErr = c.executeCreate(ctx, req.RequirementID, req.Parameters)
+		data, execErr = c.executeCreate(ctx, req.RequirementID, typedReq)
 	case OperationRead:
-		data, execErr = c.executeRead(ctx, req.RequirementID, req.Parameters)
+		data, execErr = c.executeRead(ctx, req.RequirementID, typedReq)
 	case OperationUpdate:
-		data, execErr = c.executeUpdate(ctx, req.RequirementID, req.Parameters)
+		data, execErr = c.executeUpdate(ctx, req.RequirementID, typedReq)
 	case OperationDelete:
-		data, execErr = c.executeDelete(ctx, req.RequirementID, req.Parameters)
+		data, execErr = c.executeDelete(ctx, req.RequirementID, typedReq)
 	case OperationList:
 		data, execErr = c.executeList(ctx, req.RequirementID)
 	default:
-		execErr = fmt.Errorf("operation %s not implemented", operation)
+		execErr = fmt.Errorf("operation %s not implemented", typedReq.Operation)
 	}
 
 	if execErr != nil {
 		return c.normalizeError(req.RequirementID, start, "Execution", execErr)
 	}
 
-	intentStr := req.Parameters["intent"]
-	if intentStr == "" {
-		intentStr = "manage_notes"
-	}
-
-	return c.normalizeResult(req.RequirementID, start, intentStr, data), nil
+	return c.normalizeResult(req.RequirementID, start, typedReq.Intent, data), nil
 }
 
-func (c *Capability) validateRequest(req capabilities.CapabilityRequest) error {
-	if req.RequirementID == "" {
-		return errors.New("missing requirement ID")
-	}
 
-	operation := req.Parameters["operation"]
-	if operation == "" {
-		return errors.New("missing 'operation' parameter")
-	}
-
-	op := NotesOperation(operation)
-	if !op.IsValid() {
-		return errors.New("unsupported operation: " + operation)
-	}
-
-	return nil
-}
 
 func (c *Capability) checkLifecycle() error {
 	state := c.State().Lifecycle
@@ -97,23 +80,15 @@ func (c *Capability) checkLifecycle() error {
 	return nil
 }
 
-func (c *Capability) executeCreate(ctx context.Context, reqID string, params map[string]string) (map[string]interface{}, error) {
+func (c *Capability) executeCreate(ctx context.Context, reqID string, req NotesRequest) (map[string]interface{}, error) {
 	if c.Resolver == nil {
 		return nil, errors.New("native capability resolver is not wired")
 	}
 
-	title, ok := params["title"]
-	if !ok || title == "" {
-		return nil, errors.New("missing 'title' parameter")
-	}
-
-	content := params["content"] // Optional, can be empty
-	path := title + ".txt"
-
 	// Check if note already exists
 	existsParams := map[string]string{
 		"operation": "file_exists",
-		"path":      path,
+		"filename":  req.Title, // Let Native Files determine format/path logic
 	}
 	
 	existsCap, err := c.Resolver.Resolve(ctx, reqID, "NativeFilesCapability", existsParams)
@@ -133,8 +108,8 @@ func (c *Capability) executeCreate(ctx context.Context, reqID string, params map
 
 	fileParams := map[string]string{
 		"operation": "write_file",
-		"path":      path,
-		"data_text": content,
+		"filename":  req.Title,
+		"data_text": req.Content,
 		"append":    "false",
 	}
 
@@ -157,23 +132,18 @@ func (c *Capability) executeCreate(ctx context.Context, reqID string, params map
 
 	return map[string]interface{}{
 		"status": "created",
-		"title":  title,
+		"title":  req.Title,
 	}, nil
 }
 
-func (c *Capability) executeRead(ctx context.Context, reqID string, params map[string]string) (map[string]interface{}, error) {
+func (c *Capability) executeRead(ctx context.Context, reqID string, req NotesRequest) (map[string]interface{}, error) {
 	if c.Resolver == nil {
 		return nil, errors.New("native capability resolver is not wired")
 	}
 
-	title, ok := params["title"]
-	if !ok || title == "" {
-		return nil, errors.New("missing 'title' parameter")
-	}
-
 	fileParams := map[string]string{
 		"operation": "read_text",
-		"path":      title + ".txt",
+		"filename":  req.Title,
 	}
 
 	fileCap, err := c.Resolver.Resolve(ctx, reqID, "NativeFilesCapability", fileParams)
@@ -195,14 +165,14 @@ func (c *Capability) executeRead(ctx context.Context, reqID string, params map[s
 
 	return map[string]interface{}{
 		"status":  "found",
-		"title":   title,
+		"title":   req.Title,
 		"content": res.Data["text"],
 	}, nil
 }
 
-func (c *Capability) executeUpdate(ctx context.Context, reqID string, params map[string]string) (map[string]interface{}, error) {
+func (c *Capability) executeUpdate(ctx context.Context, reqID string, req NotesRequest) (map[string]interface{}, error) {
 	// Re-use executeCreate since it overwrites
-	res, err := c.executeCreate(ctx, reqID, params)
+	res, err := c.executeCreate(ctx, reqID, req)
 	if err != nil {
 		return nil, err
 	}
@@ -210,19 +180,14 @@ func (c *Capability) executeUpdate(ctx context.Context, reqID string, params map
 	return res, nil
 }
 
-func (c *Capability) executeDelete(ctx context.Context, reqID string, params map[string]string) (map[string]interface{}, error) {
+func (c *Capability) executeDelete(ctx context.Context, reqID string, req NotesRequest) (map[string]interface{}, error) {
 	if c.Resolver == nil {
 		return nil, errors.New("native capability resolver is not wired")
 	}
 
-	title, ok := params["title"]
-	if !ok || title == "" {
-		return nil, errors.New("missing 'title' parameter")
-	}
-
 	fileParams := map[string]string{
 		"operation": "delete_file",
-		"path":      title + ".txt",
+		"filename":  req.Title,
 	}
 
 	fileCap, err := c.Resolver.Resolve(ctx, reqID, "NativeFilesCapability", fileParams)
@@ -244,7 +209,7 @@ func (c *Capability) executeDelete(ctx context.Context, reqID string, params map
 
 	return map[string]interface{}{
 		"status": "deleted",
-		"title":  title,
+		"title":  req.Title,
 	}, nil
 }
 

@@ -1,1 +1,0 @@
-{"SpecVersion":"3.0","ArtifactID":"d8ad50f5-83ab-46bb-8fe0-f2e8a58fa6fe","ParentArtifactID":"6155ff11-905f-4efd-b2ca-c58d2fef3e95","Timestamp":"2026-08-03T00:36:08.3815971+05:30","PlanIntent":"","ExecutionClass":"","Nodes":[{"NodeID":"89fdbca7-cd36-47a8-b2c3-0eed80b6a2dc","Capability":"app-weather-1","BoundParams":{},"UserImpact":"NONE"}],"Edges":null}

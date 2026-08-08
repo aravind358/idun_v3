@@ -92,52 +92,30 @@ func (p *PermissionPolicy) IsAllowed(resolvedPath string, op string) error {
 func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityRequest) (capabilities.CapabilityResult, error) {
 	start := time.Now()
 
-	// 1. Parameter extraction
-	operation := req.Parameters["operation"]
-	filename := req.Parameters["filename"]
-	directory := req.Parameters["directory"]
-	source := req.Parameters["source"]
-	destination := req.Parameters["destination"]
-	pathParam := req.Parameters["path"]
-
-	// Decide target path based on operation semantics
-	targetPath := ""
-	if pathParam != "" {
-		targetPath = pathParam
-	} else if filename != "" {
-		targetPath = filename
-	} else if directory != "" {
-		targetPath = directory
-	} else if source != "" {
-		targetPath = source
-	}
-
-	// For dangerous inputs that bypass grammar extraction directly into operation
-	dangerousOps := []string{"delete everything", "delete all files", "remove all folders", "format drive", "erase disk"}
-	for _, d := range dangerousOps {
-		if strings.ToLower(operation) == d || strings.ToLower(targetPath) == d {
-			return capabilities.CapabilityResult{
-				RequirementID: req.RequirementID,
-				Success:       false,
-				Error: &capabilities.CapabilityError{
-					Code:    "SecurityViolation",
-					Message: fmt.Sprintf("security policy violation: dangerous operation %q is blocked", operation),
-				},
-				Duration: time.Since(start),
-			}, nil
-		}
+	// 1. Binding & Validation
+	typedReq, err := BindFileRequest(req.Parameters)
+	if err != nil {
+		return capabilities.CapabilityResult{
+			RequirementID: req.RequirementID,
+			Success:       false,
+			Error: &capabilities.CapabilityError{
+				Code:    "Validation",
+				Message: err.Error(),
+			},
+			Duration: time.Since(start),
+		}, nil
 	}
 
 	// 2. Workspace Resolution
 	resolver := &WorkspaceResolver{root: c.workspaceRoot}
-	resolvedPath, err := resolver.Resolve(targetPath)
+	resolvedPath, err := resolver.Resolve(typedReq.Target)
 	if err != nil {
 		return capabilities.CapabilityResult{}, err
 	}
 	
 	var resolvedDest string
-	if destination != "" {
-		resolvedDest, err = resolver.Resolve(destination)
+	if typedReq.Destination != "" {
+		resolvedDest, err = resolver.Resolve(typedReq.Destination)
 		if err != nil {
 			return capabilities.CapabilityResult{}, err
 		}
@@ -145,7 +123,7 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 
 	// 3. Permission Policy Check
 	policy := &PermissionPolicy{workspaceRoot: c.workspaceRoot}
-	if err := policy.IsAllowed(resolvedPath, operation); err != nil {
+	if err := policy.IsAllowed(resolvedPath, typedReq.Operation); err != nil {
 		return capabilities.CapabilityResult{
 			RequirementID: req.RequirementID,
 			Success:       false,
@@ -157,8 +135,8 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 		}, nil
 	}
 	
-	if destination != "" {
-		if err := policy.IsAllowed(resolvedDest, operation); err != nil {
+	if typedReq.Destination != "" {
+		if err := policy.IsAllowed(resolvedDest, typedReq.Operation); err != nil {
 			return capabilities.CapabilityResult{
 				RequirementID: req.RequirementID,
 				Success:       false,
@@ -173,7 +151,7 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 
 	// 4. Map Cognitive Semantics to Native Operations
 	var nativeOp nativefiles.FileOperation
-	switch strings.ToLower(operation) {
+	switch typedReq.Operation {
 	case "open", "read":
 		nativeOp = nativefiles.OperationReadText
 	case "delete", "remove":
@@ -185,9 +163,9 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 	case "rename":
 		nativeOp = nativefiles.OperationRenameFile
 	case "create", "make", "mkdir", "create_dir", "set":
-		// Distinguish directory from file creation based on targetPath context if possible
+		// Distinguish directory from file creation based on target context if possible
 		// Default to create directory if "folder" or "dir" is in the command, or if it has no extension, but simple fallback is OK
-		if strings.Contains(strings.ToLower(req.Parameters["command"]), "file") || filepath.Ext(targetPath) != "" {
+		if strings.Contains(strings.ToLower(typedReq.Context), "file") || filepath.Ext(typedReq.Target) != "" {
 			nativeOp = nativefiles.OperationCreateFile
 		} else {
 			nativeOp = nativefiles.OperationCreateDirectory
@@ -205,9 +183,9 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 		nativeOp = nativefiles.OperationListDirectory
 	default:
 		// Try mapping directly if it's already a native operation
-		nativeOp = nativefiles.FileOperation(operation)
+		nativeOp = nativefiles.FileOperation(typedReq.Operation)
 		if !nativeOp.IsValid() {
-			return capabilities.CapabilityResult{}, fmt.Errorf("unsupported operation semantics: %s", operation)
+			return capabilities.CapabilityResult{}, fmt.Errorf("unsupported operation semantics: %s", typedReq.Operation)
 		}
 	}
 
@@ -215,7 +193,7 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 		"operation": string(nativeOp),
 		"path":      resolvedPath,
 	}
-	if destination != "" {
+	if typedReq.Destination != "" {
 		nativeParams["destination"] = resolvedDest
 	}
 
@@ -235,19 +213,11 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 		return res, err
 	}
 
-	// Normalize operation name for the template
-	normalizedOp := strings.ToLower(operation)
-	if normalizedOp == "check if" || normalizedOp == "check" || normalizedOp == "does" {
-		normalizedOp = "exists"
-	} else if normalizedOp == "remove" {
-		normalizedOp = "delete"
-	}
-
 	// Intercept the native result to enrich it with presentation routing and semantic operation.
 	// We do NOT modify res.Data to preserve semantic purity.
 	res.Realization = capabilities.Deterministic
 	res.ResponseType = "files"
-	res.Operation = normalizedOp
+	res.Operation = typedReq.Operation
 	
 	return res, nil
 }

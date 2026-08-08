@@ -2,29 +2,36 @@ package output
 
 import (
 	"context"
-	"time"
+	"fmt"
 )
 
 // DefaultOutputEngine transforms a CompositeResponse into an OutputDocument.
 // It is strictly a transformation layer — it does not access CAS, perform inference,
-// or contain modality-specific logic.
-// The ResolvedContent field of CompositeResponse is expected to be fully populated
-// by the OutputManager before Realize is called.
-type DefaultOutputEngine struct{}
-
-// NewDefaultOutputEngine creates a new DefaultOutputEngine.
-func NewDefaultOutputEngine() *DefaultOutputEngine {
-	return &DefaultOutputEngine{}
+// OrchestratingEngine implements OutputEngine by strictly delegating
+// realization to a configured Strategy, remaining completely decoupled
+// from capability logic and formatting.
+type OrchestratingEngine struct {
+	strategy Strategy
 }
 
-// Realize transforms a CompositeResponse into an OutputDocument.
-// The document's Content is taken directly from CompositeResponse.ResolvedContent,
-// which was assembled by the OutputManager from CAS payloads in semantic goal order.
-// OutputDocument is the canonical modality-agnostic output object for all plugins.
-func (e *DefaultOutputEngine) Realize(ctx context.Context, response CompositeResponse) (OutputDocument, error) {
-	return OutputDocument{
-		ID:        "out_" + response.ExecutionID,
-		Content:   response.ResolvedContent,
-		CreatedAt: time.Now(),
-	}, nil
+// NewOrchestratingEngine creates a new OrchestratingEngine.
+func NewOrchestratingEngine(strategy Strategy) *OrchestratingEngine {
+	return &OrchestratingEngine{
+		strategy: strategy,
+	}
+}
+
+// Realize routes the CompositeResponse through the configured Strategy.
+func (e *OrchestratingEngine) Realize(ctx context.Context, response CompositeResponse) (OutputDocument, error) {
+	rt := response.PrimaryResponseType()
+	
+	// Delegate descriptor lookup to strategy
+	desc := e.strategy.Select(rt)
+
+	if desc.Realizer == nil {
+		return OutputDocument{}, fmt.Errorf("no realizer configured in descriptor for response type: %q", rt)
+	}
+
+	// Delegate realization to the selected realizer
+	return desc.Realizer.Realize(ctx, response, desc)
 }

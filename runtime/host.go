@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -45,6 +46,9 @@ import (
 	"idun/world"
 	worldtext "idun/world/adapters/text"
 	"idun/world/output"
+	"idun/world/output/engine"
+	"idun/world/output/formatter"
+	"idun/world/output/strategy"
 	outtext "idun/world/plugins/text"
 )
 
@@ -280,6 +284,41 @@ func NewHost(cfg RuntimeConfiguration, opts ...HostOption) (*RuntimeHost, error)
 		opt(h)
 	}
 	return h, nil
+}
+
+type generativeInferenceAdapter struct {
+	svc     *inference.Service
+	store   *storage.Storage
+	modelID string
+}
+
+func (a *generativeInferenceAdapter) Generate(ctx context.Context, prompt string) (string, error) {
+	h := sha256.Sum256([]byte(prompt))
+	inputRef := hex.EncodeToString(h[:])
+	
+	if err := a.store.Write(inputRef, []byte(prompt)); err != nil {
+		return "", err
+	}
+
+	req := inference.InferenceRequest{
+		ModelID:  a.modelID,
+		InputRef: inputRef,
+		Modality: inference.ModalityText,
+		Budget:   "STANDARD",
+		CallerID: "OutputEngine.GenerativeRealizer",
+	}
+
+	res, err := a.svc.Execute(ctx, req)
+	if err != nil {
+		return "", err
+	}
+
+	outBytes, err := a.store.Read(res.OutputRef)
+	if err != nil {
+		return "", err
+	}
+
+	return string(outBytes), nil
 }
 
 // Configure updates runtime configuration if the host is stopped.
@@ -639,7 +678,35 @@ func (h *RuntimeHost) Build() error {
 		// Initialize Output Pipeline (O-Series)
 		pluginRegistry := output.NewDefaultPluginRegistry()
 		aggregator := output.NewDefaultAggregator()
-		engine := output.NewDefaultOutputEngine()
+
+		tmplPath := filepath.Join(h.cfg.StoragePath, "templates")
+		if _, err := os.Stat(tmplPath); os.IsNotExist(err) {
+			tmplPath = filepath.Join("..", "data", "runtime", "templates")
+		}
+		tmplEngine := formatter.NewEngine(tmplPath)
+
+		detRealizer := engine.NewDeterministicRealizer(tmplEngine)
+		genRealizer := engine.NewGenerativeRealizer(&generativeInferenceAdapter{
+			svc:     h.inferenceSvc,
+			store:   h.storageSvc,
+			modelID: h.cfg.DefaultRealizationModel,
+		})
+
+		strat := strategy.NewDefaultStrategy(output.Descriptor{
+			ResponseType: "fallback",
+			Realizer:     genRealizer,
+			TemplateID:   "",
+		})
+		
+		for _, rt := range []string{"greeting", "time", "weather", "communicative", "date", "system", "notes", "calculator", "files", "reminder"} {
+			strat.Register(output.ResponseType(rt), output.Descriptor{
+				ResponseType: output.ResponseType(rt),
+				Realizer:     detRealizer,
+				TemplateID:   rt,
+			})
+		}
+
+		orchestrator := output.NewOrchestratingEngine(strat)
 		
 		txtFmt := outtext.NewDefaultTextFormatter()
 		txtPlugin := outtext.NewPlugin(txtFmt, outtext.NewTextWriterAdapter(outW))
@@ -648,7 +715,7 @@ func (h *RuntimeHost) Build() error {
 		outputManager := output.NewDefaultOutputManager(
 			pluginRegistry, 
 			aggregator, 
-			engine,
+			orchestrator,
 			&payloadStorerAdapter{store: h.storageSvc},
 		)
 		worldSvc.SetOutputDispatcher(outputManager.Dispatch)

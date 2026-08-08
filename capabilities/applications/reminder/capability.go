@@ -27,9 +27,9 @@ func New(deps core.AppCapabilityDependencies) *Capability {
 func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityRequest) (capabilities.CapabilityResult, error) {
 	start := time.Now()
 
-	// 1. Validation
-	if err := c.validateRequest(req); err != nil {
-		return c.normalizeError(req.RequirementID, start, "Validation", err)
+	// 1. Validation of envelope
+	if req.RequirementID == "" {
+		return c.normalizeError(req.RequirementID, start, "Validation", errors.New("missing requirement ID"))
 	}
 
 	// 2. Lifecycle Check
@@ -37,20 +37,25 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 		return c.normalizeError(req.RequirementID, start, "Unavailable", err)
 	}
 
-	opStr := req.Parameters["operation"]
-	operation := ReminderOperation(opStr)
+	// 3. Binding & Validation
+	typedReq, err := BindReminderRequest(req.Parameters)
+	if err != nil {
+		return c.normalizeError(req.RequirementID, start, "Validation", err)
+	}
+	
+	operation := ReminderOperation(typedReq.Operation)
 
-	// 3. Execution
+	// 4. Execution
 	var data map[string]interface{}
 	var execErr error
 
 	switch operation {
 	case OperationSet:
-		data, execErr = c.executeSet(ctx, req.RequirementID, req.Parameters)
+		data, execErr = c.executeSet(ctx, req.RequirementID, typedReq)
 	case OperationCancel:
-		data, execErr = c.executeCancel(ctx, req.RequirementID, req.Parameters)
+		data, execErr = c.executeCancel(ctx, req.RequirementID, typedReq)
 	case OperationList:
-		data, execErr = c.executeList(ctx, req.RequirementID)
+		data, execErr = c.executeList(ctx, req.RequirementID, typedReq)
 	default:
 		execErr = fmt.Errorf("operation %s not implemented", operation)
 	}
@@ -59,25 +64,7 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 		return c.normalizeError(req.RequirementID, start, "Execution", execErr)
 	}
 
-	return c.normalizeResult(req.RequirementID, start, opStr, data), nil
-}
-
-func (c *Capability) validateRequest(req capabilities.CapabilityRequest) error {
-	if req.RequirementID == "" {
-		return errors.New("missing requirement ID")
-	}
-
-	operation := req.Parameters["operation"]
-	if operation == "" {
-		return errors.New("missing 'operation' parameter")
-	}
-
-	op := ReminderOperation(operation)
-	if !op.IsValid() {
-		return errors.New("unsupported operation: " + operation)
-	}
-
-	return nil
+	return c.normalizeResult(req.RequirementID, start, string(operation), data), nil
 }
 
 func (c *Capability) checkLifecycle() error {
@@ -88,18 +75,18 @@ func (c *Capability) checkLifecycle() error {
 	return nil
 }
 
-func (c *Capability) executeSet(ctx context.Context, reqID string, params map[string]string) (map[string]interface{}, error) {
+func (c *Capability) executeSet(ctx context.Context, reqID string, req ReminderRequest) (map[string]interface{}, error) {
 	if c.Resolver == nil {
 		return nil, errors.New("native capability resolver is not wired")
 	}
 
 	sysParams := map[string]string{
 		"operation": "schedule_task",
-		"message":   params["message"],
-		"time":      params["time"],
+		"message":   req.Message,
+		"time":      req.Time,
 	}
 
-	sysCap, err := c.Resolver.Resolve(ctx, reqID, "NativeSystemManager", sysParams)
+	sysCap, err := c.Resolver.Resolve(ctx, reqID, "NativeSystemCapability", sysParams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve native system capability: %w", err)
 	}
@@ -119,17 +106,17 @@ func (c *Capability) executeSet(ctx context.Context, reqID string, params map[st
 	return res.Data, nil
 }
 
-func (c *Capability) executeCancel(ctx context.Context, reqID string, params map[string]string) (map[string]interface{}, error) {
+func (c *Capability) executeCancel(ctx context.Context, reqID string, req ReminderRequest) (map[string]interface{}, error) {
 	if c.Resolver == nil {
 		return nil, errors.New("native capability resolver is not wired")
 	}
 
 	sysParams := map[string]string{
 		"operation": "cancel_task",
-		"id":        params["id"],
+		"id":        req.ID,
 	}
 
-	sysCap, err := c.Resolver.Resolve(ctx, reqID, "NativeSystemManager", sysParams)
+	sysCap, err := c.Resolver.Resolve(ctx, reqID, "NativeSystemCapability", sysParams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve native system capability: %w", err)
 	}
@@ -149,7 +136,7 @@ func (c *Capability) executeCancel(ctx context.Context, reqID string, params map
 	return res.Data, nil
 }
 
-func (c *Capability) executeList(ctx context.Context, reqID string) (map[string]interface{}, error) {
+func (c *Capability) executeList(ctx context.Context, reqID string, req ReminderRequest) (map[string]interface{}, error) {
 	if c.Resolver == nil {
 		return nil, errors.New("native capability resolver is not wired")
 	}
@@ -158,7 +145,7 @@ func (c *Capability) executeList(ctx context.Context, reqID string) (map[string]
 		"operation": "list_tasks",
 	}
 
-	sysCap, err := c.Resolver.Resolve(ctx, reqID, "NativeSystemManager", sysParams)
+	sysCap, err := c.Resolver.Resolve(ctx, reqID, "NativeSystemCapability", sysParams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve native system capability: %w", err)
 	}

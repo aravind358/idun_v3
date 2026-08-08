@@ -1,1 +1,0 @@
-{"requirement_id":"app-files-1","success":false,"realization":0,"response_type":"files","operation":"delete_file","data":null,"error":{"code":"Execution","message":"remove C:\\Projects\\idun_v3\\folder test: The system cannot find the file specified.","retry":false},"duration":531300}

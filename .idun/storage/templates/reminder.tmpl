@@ -1,8 +1,0 @@
-Reminder Status: {{.status}}
-{{if eq .status "scheduled"}}
-Scheduled: '{{.message}}' for {{.time}}
-{{else if eq .status "cancelled"}}
-Cancelled Reminder: {{.id}}
-{{else if eq .status "found"}}
-Found {{len .reminders}} reminders.
-{{end}}

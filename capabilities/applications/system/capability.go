@@ -41,8 +41,8 @@ func New(resolver core.NativeCapabilityResolver) *Capability {
 type PermissionPolicy struct{}
 
 // IsAllowed enforces the System Policy Rule.
-func (p *PermissionPolicy) IsAllowed(intent string, operation string, rawInput string) error {
-	intentLower := strings.ToLower(intent)
+func (p *PermissionPolicy) IsAllowed(req SystemRequest) error {
+	intentLower := strings.ToLower(req.Intent)
 	
 	// Fast-path read-only queries
 	switch intentLower {
@@ -54,8 +54,8 @@ func (p *PermissionPolicy) IsAllowed(intent string, operation string, rawInput s
 		dangerousPhrases := []string{
 			"shut everything down", "destroy", "kill", "wipe", "format drive", "erase disk",
 		}
-		rawLower := strings.ToLower(rawInput)
-		opLower := strings.ToLower(operation)
+		rawLower := strings.ToLower(req.OriginalInput)
+		opLower := strings.ToLower(req.Operation)
 		for _, phrase := range dangerousPhrases {
 			if strings.Contains(rawLower, phrase) || strings.Contains(opLower, phrase) {
 				return fmt.Errorf("security policy violation: dangerous operation %q is blocked", phrase)
@@ -65,7 +65,7 @@ func (p *PermissionPolicy) IsAllowed(intent string, operation string, rawInput s
 	default:
 		// Attempt to block unrecognized operations. 
 		// Even if semantic grammar matched it as something else, we enforce bounds here.
-		return fmt.Errorf("security policy violation: unrecognized or unsupported system intent %q", intent)
+		return fmt.Errorf("security policy violation: unrecognized or unsupported system intent %q", req.Intent)
 	}
 }
 
@@ -73,18 +73,23 @@ func (p *PermissionPolicy) IsAllowed(intent string, operation string, rawInput s
 func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityRequest) (capabilities.CapabilityResult, error) {
 	start := time.Now()
 
-	// 1. Parameter extraction
-	operation := req.Parameters["operation"]
-	intent := req.Parameters["intent"]
-	
-	rawInput := req.Parameters["raw_input"] 
-	if rawInput == "" {
-		rawInput = operation 
+	// 1. Binding & Validation
+	typedReq, err := BindSystemRequest(req.Parameters)
+	if err != nil {
+		return capabilities.CapabilityResult{
+			RequirementID: req.RequirementID,
+			Success:       false,
+			Error: &capabilities.CapabilityError{
+				Code:    "Validation",
+				Message: err.Error(),
+			},
+			Duration: time.Since(start),
+		}, nil
 	}
 
 	// 2. Permission Policy Check
 	policy := &PermissionPolicy{}
-	if err := policy.IsAllowed(intent, operation, rawInput); err != nil {
+	if err := policy.IsAllowed(typedReq); err != nil {
 		return capabilities.CapabilityResult{
 			RequirementID: req.RequirementID,
 			Success:       false,
@@ -98,7 +103,7 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 
 	// 3. Map Cognitive Semantics to Native Operations
 	var nativeOp nativesystem.SystemOperation
-	switch strings.ToLower(intent) {
+	switch strings.ToLower(typedReq.Intent) {
 	case "query_battery":
 		nativeOp = nativesystem.OperationBattery
 	case "query_cpu":
@@ -115,9 +120,9 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 		nativeOp = nativesystem.OperationLock
 	default:
 		// Fallback check if it maps directly to native op
-		nativeOp = nativesystem.SystemOperation(intent)
+		nativeOp = nativesystem.SystemOperation(typedReq.Intent)
 		if !nativeOp.IsValid() {
-			return capabilities.CapabilityResult{}, fmt.Errorf("unsupported system semantics: %s", intent)
+			return capabilities.CapabilityResult{}, fmt.Errorf("unsupported system semantics: %s", typedReq.Intent)
 		}
 	}
 
@@ -143,9 +148,10 @@ func (c *Capability) Execute(ctx context.Context, req capabilities.CapabilityReq
 
 	// Intercept the native result to enrich it with presentation routing and semantic operation.
 	// We do NOT modify res.Data to preserve semantic purity.
+	// TODO: Migrate presentation-specific normalization out of the capability and into the Output subsystem.
 	res.Realization = capabilities.Deterministic
 	res.ResponseType = "system"
-	res.Operation = intent
+	res.Operation = typedReq.Intent
 	
 	return res, nil
 }

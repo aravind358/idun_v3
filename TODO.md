@@ -1141,3 +1141,151 @@ Review during future Understanding evolution to reduce coupling where practical 
     - `ParentGoalID` (for hierarchical planning)
     - `CreatedAt`
 - **Notes**: This should evolve incrementally as the runtime grows. Do not implement these fields now. Each field has a designated owning subsystem; new fields should follow the same immutable propagation rules already established.
+## Testing & Validation (Current Priority)
+
+□ Perform extensive real-world testing of IDUN V3.
+
+□ Record every failure, limitation, ambiguity, and incorrect behavior.
+
+□ Classify each issue by subsystem:
+    - Understanding
+    - Context
+    - Reasoning
+    - Planning
+    - Decision
+    - Executive
+    - World
+    - Output
+
+□ Replace legacy V2 components only when testing proves they are the limiting factor.
+
+□ Re-run the full regression suite after every major replacement.
+
+## Native V3 Intelligence Migration (Post-Cleanup)
+
+□ Native Grammar Specialist (V3)
+  - Replace the legacy Grammar Specialist used by Understanding V3.
+  - Remove the Grammar Adapter.
+  - Delete the legacy Grammar Specialist after parity verification.
+
+□ Native Neural Specialist (V3)
+  - Replace the legacy Neural Specialist.
+  - Remove the Neural Adapter.
+  - Delete the legacy Neural Specialist after verification.
+
+□ Native Deliberative Specialist (V3)
+  - Replace the legacy Deliberative Specialist used by Reasoning V3.
+  - Remove the legacy reasoning shim.
+  - Verify reasoning behavior before deletion.
+
+□ Remove Planning Serialization Compatibility
+  - Replace CandidatePlan compatibility with native ExecutionPlan serialization.
+  - Delete remaining planning compatibility types.
+
+□ Replace Executive Legacy Interfaces
+  - Migrate Learning and Reflection to Executive V3 interfaces.
+  - Remove AbilityDriver and other legacy executive interfaces.
+
+□ Remove Remaining V2 Compatibility Shims
+  - Delete legacy Understanding package.
+  - Delete legacy Reasoning package.
+  - Delete remaining Planning compatibility.
+  - Delete legacy Executive package.
+  - Verify zero V3 → V2 imports.
+
+□ Native V3 Intelligence Certification
+  - Run a complete dependency audit.
+  - Verify no compatibility shims remain.
+  - Verify zero V3 → V2 imports.
+  - Run:
+      go build ./...
+      go test ./...
+      go test -race ./...
+  - Freeze the "Native V3 Intelligence" milestone.
+
+- [ ] Support realization of multiple response types within a single CompositeResponse.
+- [ ] Replace manual descriptor registration in runtime/host.go with automatic descriptor discovery/registration during startup.
+
+
+## Future Architecture — Scheduler Separation (Reminder)
+
+The Reminder capability should remain responsible only for reminder lifecycle operations (Create, Update, Delete, List). It must never monitor the system clock or execute periodic scheduling loops.
+
+### Architecture
+
+User
+        │
+        ▼
+Reminder Capability
+(Create / Update / Delete)
+        │
+        ▼
+Reminder Store
+(Persistent Storage)
+        │
+        ▼
+Scheduler Service
+(Time-based execution)
+        │
+Publishes ReminderDue event
+        │
+        ▼
+Notification Service
+        │
+        ├── Terminal
+        ├── Desktop Notification
+        ├── GUI Popup
+        ├── Voice
+        ├── Mobile (Future)
+        └── Other notification plugins
+
+### Responsibilities
+
+**Reminder Capability**
+Responsible only for:
+- Creating reminders
+- Updating reminders
+- Deleting reminders
+- Listing reminders
+Not responsible for: Monitoring time, Triggering reminders, Sending notifications.
+
+**Reminder Store**
+Responsible for:
+- Persisting reminders
+- Loading reminders at startup
+- Providing scheduled reminders to the Scheduler
+
+**Scheduler Service**
+Responsible for:
+- Monitoring time
+- Detecting due reminders
+- Publishing ReminderDue events
+- Handling recurring reminders
+- Supporting future snooze and rescheduling
+The Scheduler must not contain any notification logic.
+
+**Notification Service**
+Responsible only for presenting reminders.
+Initially: Terminal output
+Future: Windows notifications, GUI notifications, Voice announcements, Mobile notifications, Additional notification plugins.
+The Notification Service should subscribe to ReminderDue events and remain completely independent from reminder creation.
+
+### Architectural Principles
+- The Reminder capability must never contain timers or scheduling loops.
+- The Scheduler must never create or modify reminders.
+- The Notification Service must never inspect reminder creation logic.
+- The Scheduler should publish events, not call notification implementations directly.
+- New notification methods should be pluggable without modifying the Reminder capability or Scheduler.
+
+### Roadmap
+
+- [ ] Implement persistent Reminder Store
+- [ ] Implement Scheduler Service
+- [ ] Introduce ReminderDue event
+- [ ] Implement Terminal Notifier
+- [ ] Implement Desktop Notification plugin
+- [ ] Implement Voice Notification plugin
+- [ ] Support recurring reminders
+- [ ] Support snooze and reschedule
+- [ ] Support notification priorities
+- [ ] Support multiple notification channels

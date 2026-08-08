@@ -1,1 +1,0 @@
-{"requirement_id":"app-weather-1","success":true,"realization":0,"response_type":"weather","operation":"query_weather","data":{"location":"heyderabad","weather":{"Condition":"Sunny","FeelsLikeC":"29","FeelsLikeF":"85","Humidity":"6","TemperatureC":"36","TemperatureF":"96","VisibilityKm":"10","WindDirection":"NNE","WindSpeedKmph":"18"}},"duration":795850200}
