@@ -1,0 +1,155 @@
+## Phase 4B Scope Definition
+
+Phase 4B is responsible for expanding the behavioral coverage of the Understanding layer within the frozen Cognitive API Specification.
+
+The objective is not to redesign the architecture or modify semantic contracts.
+
+Instead, Phase 4B incrementally increases the range of natural language the Understanding layer can correctly interpret while continuing to produce the existing SemanticInterpretation contract.
+
+No schema modifications should occur during Phase 4B unless a verified conflict with the approved Cognitive API Specification is discovered.
+
+
+phaseB Preparation: Understanding Coverage Matrix
+This design report establishes the current baseline of the Understanding layer. It documents exactly what is supported by the GrammarSpecialist and the semantic extractors, providing an evidence-based roadmap for Phase 4B expansion.
+
+1. Grammar Specialist Coverage Matrix
+The following table documents every intent currently registered in the GrammarSpecialist and maps its capabilities through the semantic extraction pipeline.
+
+Intent	Grammar Support	Slot Extraction	Entities	References	Temporal Anchors
+greet_user	✅ (Exact)	❌	❌	❌	❌
+query_status	✅ (Exact)	❌	❌	❌	❌
+cancel_action	✅ (Exact)	❌	❌	❌	❌
+query_identity	✅ (Exact)	❌	❌	❌	❌
+query_wellbeing	✅ (Exact)	❌	❌	❌	❌
+farewell_user	✅ (Exact)	❌	❌	❌	❌
+query_time	✅ (Exact)	❌	❌	❌	❌
+set_alarm	✅ (Prefix)	✅ (time)	❌	❌	✅ (TempAbsolute)
+create_reminder	✅ (Prefix)	✅ (time)	❌	❌	✅ (TempAbsolute)
+query_weather	✅ (Prefix)	✅ (city, time)	✅ (EntityLocation)	❌	✅ (TempAbsolute)
+take_note	✅ (Prefix)	✅ (content)	❌	❌	❌
+buy	✅ (Prefix)	✅ (item)	✅ (EntityProduct)	❌	❌
+delete	✅ (Prefix)	✅ (target)	❌	✅ (RefPronoun)	❌
+calculate	❌	❌	❌	❌	❌
+2. Intent Coverage Map
+Intent	Architectural Coverage	User-Facing Capability
+greet_user	🟢 Full	🟢 Full
+query_status	🟢 Full	🟡 Partial
+cancel_action	🟢 Full	🟡 Partial
+query_identity	🟢 Full	🟢 Full
+query_wellbeing	🟢 Full	🟢 Full
+farewell_user	🟢 Full	🟢 Full
+query_time	🟢 Full	🟡 Partial
+set_alarm	🟡 Partial	🟡 Partial
+create_reminder	🟡 Partial	🟡 Partial
+query_weather	🟡 Partial	🟡 Partial
+take_note	🟡 Partial	🟡 Partial
+buy	🟡 Partial	🟡 Partial
+delete	🟡 Partial	🟡 Partial
+calculate	❌ Missing	❌ Missing
+open_file	❌ Missing	❌ Missing
+rename_file	❌ Missing	❌ Missing
+3. Coverage Analysis
+Coverage Percentage
+Based on the Cognitive API Specification and standard conversational bounds, the current coverage is estimated as:
+
+Grammar Recognition: ~35-40% (Relies heavily on brittle prefix and exact-match triggers)
+Slot Extraction: ~30% (Captures simple remainder strings after prefixes)
+Temporal Extraction: ~10% (Extracts the string directly without normalizing, e.g. "tomorrow" -> "tomorrow")
+Entity Extraction: ~15% (Hardcoded to map specific slot names like city and item)
+Reference Extraction: ~5% (Only captures pronouns if manually forced into a target slot via grammar rules)
+Missing Grammar Rules
+The current implementation completely lacks support for:
+
+Arithmetic Expressions: (e.g., 3+3, 15*27)
+File & System Operations: (e.g., open notes.txt, rename document.docx)
+Rich Temporal Queries: (e.g., what is on my schedule next Friday)
+Natural Conversational Idioms: Variations in phrasing break the prefix/exact match rules.
+Missing Slot Extraction
+Even when intents are recognized, slots are frequently missed:
+
+Quantities/Amounts: No grammar rules extract numbers or units.
+Implicit Targets: "remind me" does not extract "me" as the target of the reminder.
+Multiple Slots: Prefix rules only support capturing a single trailing string.
+Missing Semantic Extraction
+There are distinct gaps where a slot successfully extracts, but semantic mapping fails:
+
+Note Content: The take_note intent extracts a content slot, but because content is not mapped in extractors.go, no Entity is populated.
+Unmapped Pronouns: The system fails to tag it, this, or that as References unless explicitly placed into a target slot.
+4. Architectural Recommendations
+Keep Semantic Extraction and Normalization Separate
+Maintain a clean pipeline boundary: Grammar -> Slots -> TemporalExtractor -> TemporalNormalizer -> TemporalAnchors.
+Delay Compound Intent Detection
+Ensure the single-intent pipeline is fully robust before introducing the complexity of parsing multiple intents (e.g. and/then).
+Modularize Extractor Implementation
+Begin modularizing the extractors.go file before it grows into a monolithic structure.
+Recommended future structure:
+text
+
+intelligence/
+    understanding/
+        extractors/
+            entity/
+            reference/
+            temporal/
+            slot/
+            normalization/
+5. Recommended Implementation Order (Phase 4B Backlog)
+To expand coverage efficiently while adhering to the approved architecture freeze, prioritize Phase 4B implementation in the following order:
+
+Grammar coverage expansion (e.g., regex-based rules, arithmetic)
+Slot extraction improvements (e.g., extracting quantities, capturing implicit targets)
+Semantic extraction improvements (e.g., mapping note contents, expanding pronoun resolution)
+Temporal normalization (e.g., converting "tomorrow" to absolute time)
+Natural language variation (e.g., relaxing strict prefix checks)
+Compound intent detection (e.g., handling conjunctions in the orchestrator)
+
+## Phase 4B Success Criteria
+
+Understanding Phase 4B will be considered complete when:
+
+✓ Grammar coverage has expanded beyond simple exact/prefix rules.
+
+✓ Slot extraction supports multiple parameters.
+
+✓ Generic entity extraction works independently of specific slot names.
+
+✓ Reference extraction recognizes common pronouns naturally.
+
+✓ Temporal normalization converts natural language into canonical time representations.
+
+✓ The Understanding layer correctly interprets diverse real-world inputs demonstrated through trace audits.
+
+✓ No architectural or schema changes were required.
+
+## Future Expansion
+
+The current implementation uses deterministic extractors.
+
+The extractor architecture is intentionally designed to allow future implementations including:
+
+• Deterministic
+• Regex
+• Neural
+• Hybrid
+• LLM-assisted
+
+without modifying the Cognitive API Specification.
+
+Every Phase 4B milestone must conclude with a trace audit.
+
+The trace audit should verify:
+
+Input
+↓
+
+PrimaryHypothesis
+
+↓
+
+SemanticInterpretation
+
+↓
+
+Reasoning Input
+
+to ensure no semantic information is lost between stages.
